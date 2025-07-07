@@ -204,7 +204,7 @@ DEBUG=true  # Set to false for production
 
 ### LinkChecker Settings
 The script uses these linkchecker parameters:
-- `--user-agent="LEXO Linkchecker/1.0"`
+- `--user-agent="Your Personal Linkchecker User Agent String/1.0"`
 - `--check-extern` (check external links)
 - `--recursion-level=10`
 - `--timeout=30`
