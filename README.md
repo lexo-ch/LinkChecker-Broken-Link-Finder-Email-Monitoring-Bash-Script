@@ -129,7 +129,7 @@ echo -e "From: test@domain.com\nSubject: Test Subject\nTo: your-email@domain.com
 
 ### 1. Download the Script
 ```bash
-wget https://raw.githubusercontent.com/yourusername/broken-link-guardian/main/linkchecker.sh
+wget https://raw.githubusercontent.com/lexo-ch/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/refs/heads/master/linkchecker.sh
 chmod +x linkchecker.sh
 ```
 
