@@ -1,14 +1,17 @@
 # Automated website link checker with HTML email reporting
 
-A robust Bash script that crawls your website, detects broken links, and sends beautifully formatted HTML email reports. Perfect for automated monitoring via CRON jobs.
+A robust Bash script that crawls your website, detects broken links, validates YouTube videos, and sends beautifully formatted HTML email reports. Perfect for automated monitoring via CRON jobs.
 
 ## ✨ Features
 
-- **Comprehensive Link Checking**: Crawls internal and external links recursively
+- **Comprehensive Link Checking**: Crawls internal and external links recursively with configurable depth
+- **YouTube Video Validation**: Automatically checks YouTube video availability using oEmbed API
 - **Professional Email Reports**: HTML emails with responsive design and detailed statistics  
-- **Flexible Exclusion System**: REGEX-based URL exclusion patterns
+- **Flexible Exclusion System**: REGEX-based URL exclusion patterns with runtime configuration
+- **Enhanced CRON Support**: Silent operation with proper error handling for automated scheduling
 - **Bilingual Support**: German and English report languages
-- **CRON-Ready**: Silent operation perfect for automated scheduling
+- **Command-Line Options**: Dynamic exclude patterns, debug mode, and help system
+- **Rate-Limited API Calls**: Respects YouTube API limits with intelligent throttling
 - **Detailed Logging**: Configurable debug levels with comprehensive audit trails
 - **UTF-8 Compatible**: Proper encoding for international content
 - **Mobile-Friendly**: Responsive email templates that work on all devices
@@ -18,18 +21,19 @@ A robust Bash script that crawls your website, detects broken links, and sends b
 ### Required Packages
 ```bash
 # Ubuntu/Debian
-sudo apt-get install linkchecker mailutils
+sudo apt-get install linkchecker mailutils curl
 
 # CentOS/RHEL
-sudo yum install linkchecker mailx
+sudo yum install linkchecker mailx curl
 
 # macOS (with Homebrew)
-brew install linkchecker
+brew install linkchecker curl
 ```
 
 ### System Requirements
 - **Bash 4.0+** (for array support)
 - **linkchecker** (Python-based link checking tool)
+- **curl** (for YouTube video validation)
 - **mail command** or **ssmtp** (for sending emails)
 - **Configured SMTP MTA** (see Email Setup below)
 
@@ -96,24 +100,6 @@ AuthUser=my@mail.username.tld
 AuthPass=mypassword
 ```
 
-#### Modify Script for SSMTP
-
-If using SSMTP, replace the email sending function in the script:
-
-```bash
-# Replace this function in send_email_report():
-# OLD (mail command):
-if sudo -u "$MAIL_SENDER" mail \
-    -s "$subject" \
-    -a "Content-Type: text/html; charset=UTF-8" \
-    -a "Content-Transfer-Encoding: 8bit" \
-    -a "From: $MAIL_SENDER_NAME <$MAIL_SENDER>" \
-    "$mailto" < "$mail_html" 2>>"$LOG_FILE"; then
-
-# NEW (ssmtp command):
-if echo -e "From: $MAIL_SENDER_NAME <$MAIL_SENDER>\nSubject: $subject\nTo: $mailto\nContent-Type: text/html; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n\n$(cat "$mail_html")" | ssmtp -t 2>>"$LOG_FILE"; then
-```
-
 ### Test Email Configuration
 
 Test your email setup:
@@ -137,8 +123,8 @@ chmod +x linkchecker.sh
 Edit the script and modify these variables:
 ```bash
 # Email configuration
-MAIL_SENDER="your-email@domain.com"
-MAIL_SENDER_NAME="Your Name | Web Support"
+MAIL_SENDER="websupport@lexo.ch"
+MAIL_SENDER_NAME="LEXO | Web Support"
 ```
 
 Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) section).
@@ -152,8 +138,16 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 
 ### Command Syntax
 ```bash
-./linkchecker.sh <base_url> <cms_login_url> <language> <mailto>
+./linkchecker.sh [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
 ```
+
+### Options (New in v1.4)
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--exclude=REGEX` | Add exclude pattern (can be used multiple times) | `--exclude='\.pdf$'` |
+| `--debug` | Enable debug output | `--debug` |
+| `-h, --help` | Show help message | `-h` |
 
 ### Parameters
 
@@ -163,6 +157,13 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 | `cms_login_url` | CMS login URL (use `-` if none) | `https://example.com/admin` or `-` |
 | `language` | Report language (`de` or `en`) | `de` |
 | `mailto` | Email recipients (comma-separated) | `admin@example.com,web@example.com` |
+
+### Environment Variables (New in v1.4)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEBUG` | Enable debug output | `false` |
+| `LOG_FILE` | Set log file location | `/var/log/linkchecker.log` |
 
 ### Examples
 
@@ -174,6 +175,16 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 **WordPress site with admin panel:**
 ```bash
 ./linkchecker.sh https://myblog.com https://myblog.com/wp-admin de admin@myblog.com
+```
+
+**With custom exclude patterns:**
+```bash
+./linkchecker.sh --exclude='\.pdf$' --exclude='/api/' https://example.com - en admin@example.com
+```
+
+**Debug mode with custom log file:**
+```bash
+DEBUG=true LOG_FILE=/tmp/linkcheck.log ./linkchecker.sh https://example.com - en admin@example.com
 ```
 
 **Multiple recipients:**
@@ -196,63 +207,93 @@ EXCLUDES=(
 )
 ```
 
+### YouTube Video Checking (New in v1.4)
+The script automatically detects and validates YouTube videos:
+- **Supported domains**: youtube.com, youtube-nocookie.com, youtu.be, yt.be, and country-specific variants
+- **Rate limiting**: Max 30 requests per minute to respect API limits
+- **Timeout**: 10 seconds per video check
+- **Detection**: Identifies deleted, private, and unavailable videos
+
+### LinkChecker Settings (Enhanced in v1.4)
+Configurable parameters via `LINKCHECKER_PARAMS`:
+```bash
+LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
+```
+
+Default settings:
+- `--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36..."`
+- `--check-extern` (check external links)
+- `--recursion-level=-1` (unlimited depth)
+- `--timeout=30` (30 second timeout)
+- `--threads=30` (30 concurrent threads)
+
 ### Debug Mode
 Enable detailed logging for troubleshooting:
 ```bash
 DEBUG=true  # Set to false for production
 ```
 
-### LinkChecker Settings
-The script uses these linkchecker parameters:
-- `--user-agent="Your Personal Linkchecker User Agent String/1.0"`
-- `--check-extern` (check external links)
-- `--recursion-level=10`
-- `--timeout=30`
-- `--threads=20`
+## 🕐 CRON Automation (Enhanced in v1.4)
 
-## 🕐 CRON Automation
+The script is optimized for CRON with silent operation - only errors appear on stderr.
 
 ### Daily Check at 2 AM
 ```bash
 0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com
 ```
 
-### Weekly Check (Sundays at 3 AM)
+### Weekly Check with Custom Log File
 ```bash
-0 3 * * 0 /path/to/linkchecker.sh https://example.com https://example.com/admin de webmaster@example.com
+0 3 * * 0 LOG_FILE=/var/log/weekly-linkcheck.log /path/to/linkchecker.sh https://example.com - de admin@example.com
 ```
 
-### Multiple Sites
+### Multiple Sites with Exclude Patterns
 ```bash
-# Check multiple websites
-0 2 * * * /path/to/linkchecker.sh https://site1.com - en admin@site1.com
-0 3 * * * /path/to/linkchecker.sh https://site2.com - en admin@site2.com
+# Check multiple websites with different configurations
+0 2 * * * /path/to/linkchecker.sh --exclude='\.pdf$' https://site1.com - en admin@site1.com
+0 3 * * * /path/to/linkchecker.sh --exclude='/wp-admin/' https://site2.com - en admin@site2.com
 ```
 
-## 📧 Email Report Features
+### CRON Error Handling
+```bash
+# Example with error notification
+0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com 2>&1 | mail -s "Linkchecker Error" admin@example.com
+```
+
+## 📧 Email Report Features (Enhanced in v1.4)
 
 ### Report Contents
 - **Executive Summary**: Check duration, total URLs, error count, success rate
+- **YouTube Statistics**: Video checks performed and errors found
 - **Detailed Error Table**: Broken URLs with error types and source pages
+- **YouTube Error Section**: Separate section for video availability issues
 - **CMS Login Link**: Direct link to content management system (if provided)
-- **Professional Styling**: Century Gothic font, responsive design
-- **Mobile Optimization**: Works perfectly on smartphones and tablets
+- **Professional Styling**: Modern responsive design with improved mobile support
+- **Timestamp**: Automatic generation timestamp in footer
+
+### YouTube Error Types
+- **Video deleted or unavailable**: HTTP 404 or similar
+- **Video is private**: Access restricted
+- **Could not check video status**: Network or API timeout
 
 ### Sample Email Output
 The HTML reports include:
 - ✅ Website overview with clickable URL
-- 📊 Statistics table with key metrics  
+- 📊 Statistics table with key metrics including YouTube checks
 - 🔗 Clickable broken links for easy access
-- 📱 Mobile-responsive design
-- 🎨 Professional branding and styling
+- 🎥 YouTube video error section (when applicable)
+- 📱 Mobile-responsive design with improved styling
+- 🎨 Professional branding with LEXO signature logo
 
-## 📁 Log Files
+## 📁 Log Files (Enhanced in v1.4)
 
-Logs are written to `/var/log/linkchecker.log` with:
-- **Execution timestamps**
-- **Processing statistics** 
+Logs are written to `/var/log/linkchecker.log` (configurable via `LOG_FILE`) with:
+- **Execution timestamps** with clear session markers
+- **Processing statistics** including YouTube checks
 - **Error details** (when DEBUG=true)
 - **Email delivery confirmation**
+- **Rate limiting information** for YouTube API calls
+- **Performance metrics** and timing data
 
 ### Log Rotation
 Recommend setting up logrotate:
@@ -273,23 +314,33 @@ Recommend setting up logrotate:
 
 **"linkchecker command not found"**
 ```bash
-# Install linkchecker
+# Install linkchecker (default path: /usr/local/bin/linkchecker)
 sudo apt-get install linkchecker
+
+# Or install via pip
+pip install linkchecker
+```
+
+**"curl command not found"** (New in v1.4)
+```bash
+# Install curl for YouTube checks
+sudo apt-get install curl
+```
+
+**"Cannot write to log file"** (Enhanced error handling in v1.4)
+```bash
+# Create log file with proper permissions
+sudo touch /var/log/linkchecker.log
+sudo chmod 664 /var/log/linkchecker.log
+
+# Or use custom log file location
+LOG_FILE=/home/user/linkchecker.log ./linkchecker.sh https://example.com - en admin@example.com
 ```
 
 **"mail command not found"**
 ```bash
 # Install mail utilities
 sudo apt-get install mailutils
-# OR install ssmtp as alternative
-sudo apt-get install ssmtp
-```
-
-**"Permission denied" for log file**
-```bash
-# Create log file with proper permissions
-sudo touch /var/log/linkchecker.log
-sudo chmod 664 /var/log/linkchecker.log
 ```
 
 **Emails not sending**
@@ -307,30 +358,49 @@ sudo tail -f /var/log/mail.log
 echo "Test" | mail -s "Test Subject" your-email@domain.com
 ```
 
-**SSMTP emails not working**
+**YouTube checks timing out**
 ```bash
-# Test ssmtp configuration
-echo -e "From: test@domain.com\nSubject: Test\nTo: your-email@domain.com\n\nTest message" | ssmtp -t
+# Check network connectivity to YouTube
+curl -I "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ&format=json"
 
-# Check ssmtp logs
-sudo tail -f /var/log/syslog | grep ssmtp
+# Increase timeout in script if needed (modify YOUTUBE_OEMBED_TIMEOUT)
 ```
 
-**"sudo: unable to resolve host"**
-```bash
-# Add hostname to /etc/hosts
-echo "127.0.0.1 $(hostname)" | sudo tee -a /etc/hosts
-```
-
-### Debug Mode
+### Debug Mode (Enhanced in v1.4)
 Enable debug mode for detailed troubleshooting:
 ```bash
-# Edit script and set:
-DEBUG=true
+# Using command line option
+./linkchecker.sh --debug https://example.com - en admin@example.com
 
-# Run script to see detailed output
-./linkchecker.sh https://example.com - en admin@example.com
+# Using environment variable
+DEBUG=true ./linkchecker.sh https://example.com - en admin@example.com
+
+# View logs in real-time
+tail -f /var/log/linkchecker.log
 ```
+
+### Version Information
+Check your script version:
+```bash
+./linkchecker.sh --help | grep -i version
+```
+
+## 🔄 Version History
+
+### v1.4 (2025-07-28)
+- ✨ Added YouTube video availability checking
+- 🔧 Enhanced command-line argument parsing
+- 📊 Improved CRON integration with silent operation
+- 🛠️ Better error handling and cleanup procedures
+- 📱 Enhanced responsive email design
+- ⚙️ Configurable linkchecker parameters
+- 🚀 Performance improvements and rate limiting
+
+### v1.0 (2025-07-03)
+- 🎉 Initial release
+- 🔗 Basic link checking functionality
+- 📧 HTML email reporting
+- 🌐 Bilingual support (DE/EN)
 
 ## 📄 License
 
@@ -339,5 +409,14 @@ No license, no warranties, use however you like.
 ## 🏆 Acknowledgments
 
 - Built on top of [LinkChecker](https://linkchecker.github.io/linkchecker/) by Bastian Kleineidam
+- YouTube validation using YouTube oEmbed API
 - Inspired by the need for professional website monitoring tools
 - Designed for system administrators and web developers
+
+## 🤝 Contributing
+
+Feel free to submit issues, feature requests, or pull requests. All contributions are welcome!
+
+## 📞 Support
+
+For questions or support, please open an issue on GitHub or contact the maintainer.
