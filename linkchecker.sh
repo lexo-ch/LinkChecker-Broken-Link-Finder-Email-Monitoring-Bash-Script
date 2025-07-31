@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #==============================================================================
-# Website Linkchecker Script v1.4
+# Website Linkchecker Script
 #
 # This script runs linkchecker on a website and sends an HTML email report
 # if any broken links are found. Additionally checks YouTube video availability.
@@ -17,14 +17,12 @@
 #		In tests it sometimes does not process HTTPS whereas it processes the same link without issues if the protocol is written in small caps (https)
 #
 # Author: LEXO
-# Version: 1.4
 # Date: 2025-07-28
 #==============================================================================
 
 # Configuration
 SCRIPT_NAME="LEXO Linkchecker"
-SCRIPT_VERSION="1.4"
-#USER_AGENT="LEXO Linkchecker/1.4"
+SCRIPT_VERSION="1.5"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36"
 LOGO_URL="https://www.lexo.ch/brandings/lexo-logo-signature.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
@@ -820,16 +818,16 @@ send_email() {
     local mailto="$1"
     local base_url="$2"
     local html_file="$3"
-
     local domain="${base_url#*://}"
     domain="${domain%%/*}"
     local subject="$LANG_SUBJECT - $domain"
-
+    
     log_message "Sending email to: $mailto"
 
-    if mail -s "$subject" \
+    if mail -s "$subject" -r "$MAIL_SENDER" \
         -a "Content-Type: text/html; charset=UTF-8" \
         -a "From: $MAIL_SENDER_NAME <$MAIL_SENDER>" \
+        -a "Reply-To: $MAIL_SENDER" \
         "$mailto" < "$html_file" 2>&1; then
         log_message "Email sent successfully"
         return 0
@@ -838,6 +836,7 @@ send_email() {
         return 1
     fi
 }
+
 
 #==============================================================================
 # Main function
