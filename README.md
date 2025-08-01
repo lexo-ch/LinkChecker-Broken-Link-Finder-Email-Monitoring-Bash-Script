@@ -41,13 +41,9 @@ brew install linkchecker curl
 
 The script uses `sendmail` directly for reliable email delivery with proper header control. This approach avoids duplicate headers and provides better compatibility across different systems.
 
-### Sendmail Configuration (Recommended)
+### Postfix Configuration (Recommended)
 
-The script is configured to use `sendmail` directly, which provides the most reliable email delivery. Ensure you have a working MTA installed:
-
-#### Option 1: Postfix with Sendmail Interface
-
-Install and configure Postfix (which provides the `sendmail` command):
+The script is configured to use `sendmail` directly, which provides the most reliable email delivery. Install and configure Postfix (which provides the `sendmail` command):
 
 ```bash
 # Install Postfix
@@ -56,50 +52,36 @@ sudo apt-get install postfix
 # Choose "Internet Site" during installation
 ```
 
-Configure Postfix in `/etc/postfix/main.cf`:
+#### Configure Postfix
+
+Create a basic `/etc/postfix/main.cf` configuration:
 ```bash
 smtp_sasl_auth_enable = yes
 smtp_sasl_password_maps = hash:/etc/postfix/saslpass
 smtp_sasl_security_options = noanonymous
-relayhost = mail.myserver.tld:587  ## in case of SSL, use port 465
-myhostname = my.hostname.tld
-mydomain = my.domain
+relayhost = your.smtpgateway.tld:587
+myhostname = myhost.domain.tld
+mydomain = domain.tld
 smtp_use_tls = yes
 ```
 
-Create `/etc/postfix/saslpass`:
+#### Set Up SMTP Authentication
+
+Create `/etc/postfix/saslpass` with your SMTP credentials:
 ```bash
-mail.myserver.tld		my@mail.username.tld:mypassword
+your.smtpgateway.tld		yourusername@example.tld:yourpassword
 ```
 
-Apply configuration:
+Apply the configuration:
 ```bash
-# Hash the password file
+# Initialize the password database
 sudo postmap /etc/postfix/saslpass
 
-# Secure the files
+# Secure the password files
 sudo chmod 600 /etc/postfix/saslpass /etc/postfix/saslpass.db
 
 # Restart Postfix
 sudo systemctl restart postfix
-```
-
-#### Option 2: SSMTP (Lightweight Alternative)
-
-Install SSMTP which provides a sendmail-compatible interface:
-```bash
-sudo apt-get install ssmtp
-```
-
-Configure `/etc/ssmtp/ssmtp.conf`:
-```bash
-root=myusername
-mailhub=my.hostname.tld
-hostname=my.hostname.tld
-FromLineOverride=YES
-UseSTARTTLS=YES
-AuthUser=my@mail.username.tld
-AuthPass=mypassword
 ```
 
 ### Email Configuration in Script
@@ -108,8 +90,8 @@ The script uses `sendmail` directly with proper header formatting to avoid dupli
 
 ```bash
 # Email configuration
-MAIL_SENDER="websupport@lexo.ch"
-MAIL_SENDER_NAME="LEXO | Web Support"
+MAIL_SENDER="youremail@example.tld"
+MAIL_SENDER_NAME="Your Name | Web Support"
 ```
 
 ### Test Email Configuration
@@ -117,7 +99,7 @@ MAIL_SENDER_NAME="LEXO | Web Support"
 Test your email setup using sendmail:
 ```bash
 # Test sendmail directly
-echo -e "From: test@domain.com\nSubject: Test Subject\nTo: your-email@domain.com\n\nTest message" | sendmail -f test@domain.com your-email@domain.com
+echo -e "From: test@example.tld\nSubject: Test Subject\nTo: youremail@example.tld\n\nTest message" | sendmail -f test@example.tld youremail@example.tld
 
 # Check mail queue
 mailq
@@ -138,8 +120,8 @@ chmod +x linkchecker.sh
 Edit the script and modify these variables:
 ```bash
 # Email configuration
-MAIL_SENDER="websupport@lexo.ch"
-MAIL_SENDER_NAME="LEXO | Web Support"
+MAIL_SENDER="youremail@example.tld"
+MAIL_SENDER_NAME="Your Name | Web Support"
 ```
 
 Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) section).
@@ -156,7 +138,7 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 ./linkchecker.sh [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
 ```
 
-### Options (New in v1.4)
+### Options (New since v1.4)
 
 | Option | Description | Example |
 |--------|-------------|---------|
@@ -173,7 +155,7 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 | `language` | Report language (`de` or `en`) | `de` |
 | `mailto` | Email recipients (comma-separated) | `admin@example.com,web@example.com` |
 
-### Environment Variables (New in v1.4)
+### Environment Variables (New since v1.4)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -222,14 +204,14 @@ EXCLUDES=(
 )
 ```
 
-### YouTube Video Checking (New in v1.4)
+### YouTube Video Checking (New since v1.4)
 The script automatically detects and validates YouTube videos:
 - **Supported domains**: youtube.com, youtube-nocookie.com, youtu.be, yt.be, and country-specific variants
 - **Rate limiting**: Max 30 requests per minute to respect API limits
 - **Timeout**: 10 seconds per video check
 - **Detection**: Identifies deleted, private, and unavailable videos
 
-### LinkChecker Settings (Enhanced in v1.4)
+### LinkChecker Settings (Enhanced since v1.4)
 Configurable parameters via `LINKCHECKER_PARAMS`:
 ```bash
 LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
@@ -248,7 +230,7 @@ Enable detailed logging for troubleshooting:
 DEBUG=true  # Set to false for production
 ```
 
-## 🕐 CRON Automation (Enhanced in v1.4)
+## 🕐 CRON Automation (Enhanced since v1.4)
 
 The script is optimized for CRON with silent operation - only errors appear on stderr.
 
@@ -275,7 +257,7 @@ The script is optimized for CRON with silent operation - only errors appear on s
 0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com 2>&1 | mail -s "Linkchecker Error" admin@example.com
 ```
 
-## 📧 Email Report Features (Enhanced in v1.4)
+## 📧 Email Report Features (Enhanced since v1.4)
 
 ### Report Contents
 - **Executive Summary**: Check duration, total URLs, error count, success rate
@@ -300,7 +282,7 @@ The HTML reports include:
 - 📱 Mobile-responsive design with improved styling
 - 🎨 Professional branding with customizable logo
 
-## 📁 Log Files (Enhanced in v1.4)
+## 📁 Log Files (Enhanced since v1.4)
 
 Logs are written to `/var/log/linkchecker.log` (configurable via `LOG_FILE`) with:
 - **Execution timestamps** with clear session markers
@@ -336,7 +318,7 @@ sudo apt-get install linkchecker
 pip install linkchecker
 ```
 
-**"curl command not found"** (New in v1.4)
+**"curl command not found"** (New since v1.4)
 ```bash
 # Install curl for YouTube checks
 sudo apt-get install curl
@@ -351,7 +333,7 @@ sudo apt-get install postfix
 sudo apt-get install ssmtp
 ```
 
-**"Cannot write to log file"** (Enhanced error handling in v1.4)
+**"Cannot write to log file"** (Enhanced error handling since v1.4)
 ```bash
 # Create log file with proper permissions
 sudo touch /var/log/linkchecker.log
@@ -373,7 +355,7 @@ sudo postfix check
 sudo tail -f /var/log/mail.log
 
 # Test sendmail directly
-echo -e "From: test@domain.com\nSubject: Test\nTo: you@domain.com\n\nTest message" | sendmail -f test@domain.com you@domain.com
+echo -e "From: test@example.tld\nSubject: Test\nTo: youremail@example.tld\n\nTest message" | sendmail -f test@example.tld youremail@example.tld
 
 # Check mail queue
 mailq
@@ -387,7 +369,7 @@ curl -I "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=dQw4
 # Increase timeout in script if needed (modify YOUTUBE_OEMBED_TIMEOUT)
 ```
 
-### Debug Mode (Enhanced in v1.4)
+### Debug Mode (Enhanced since v1.4)
 Enable debug mode for detailed troubleshooting:
 ```bash
 # Using command line option
@@ -413,7 +395,7 @@ Check your script version:
 - 🔧 Fixed duplicate `From:` header issue in email reports
 - 🛠️ Improved email header control and formatting
 
-### v1.5 (2025-07-31)
+### v1.5 (2025-07-30)
 - 📧 Setting proper Reply-To and Return-Path values when sending email
 - 🔧 Small refactoring improvements
 
