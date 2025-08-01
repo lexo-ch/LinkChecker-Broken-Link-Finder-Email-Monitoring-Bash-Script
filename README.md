@@ -34,16 +34,20 @@ brew install linkchecker curl
 - **Bash 4.0+** (for array support)
 - **linkchecker** (Python-based link checking tool)
 - **curl** (for YouTube video validation)
-- **mail command** or **ssmtp** (for sending emails)
+- **sendmail** (for sending emails - preferred method)
 - **Configured SMTP MTA** (see Email Setup below)
 
 ## 📧 Email Setup
 
-The script requires a working SMTP MTA (Mail Transfer Agent) to send email reports. You have two main options:
+The script uses `sendmail` directly for reliable email delivery with proper header control. This approach avoids duplicate headers and provides better compatibility across different systems.
 
-### Option 1: Postfix (Recommended)
+### Sendmail Configuration (Recommended)
 
-Install and configure Postfix as an SMTP relay:
+The script is configured to use `sendmail` directly, which provides the most reliable email delivery. Ensure you have a working MTA installed:
+
+#### Option 1: Postfix with Sendmail Interface
+
+Install and configure Postfix (which provides the `sendmail` command):
 
 ```bash
 # Install Postfix
@@ -52,9 +56,7 @@ sudo apt-get install postfix
 # Choose "Internet Site" during installation
 ```
 
-#### Configure Postfix
-
-Edit `/etc/postfix/main.cf`:
+Configure Postfix in `/etc/postfix/main.cf`:
 ```bash
 smtp_sasl_auth_enable = yes
 smtp_sasl_password_maps = hash:/etc/postfix/saslpass
@@ -82,9 +84,9 @@ sudo chmod 600 /etc/postfix/saslpass /etc/postfix/saslpass.db
 sudo systemctl restart postfix
 ```
 
-### Option 2: SSMTP (Lightweight Alternative)
+#### Option 2: SSMTP (Lightweight Alternative)
 
-Install SSMTP:
+Install SSMTP which provides a sendmail-compatible interface:
 ```bash
 sudo apt-get install ssmtp
 ```
@@ -100,15 +102,28 @@ AuthUser=my@mail.username.tld
 AuthPass=mypassword
 ```
 
+### Email Configuration in Script
+
+The script uses `sendmail` directly with proper header formatting to avoid duplicate `From:` headers and ensure correct `Return-Path` settings. The email configuration variables in the script are:
+
+```bash
+# Email configuration
+MAIL_SENDER="websupport@lexo.ch"
+MAIL_SENDER_NAME="LEXO | Web Support"
+```
+
 ### Test Email Configuration
 
-Test your email setup:
+Test your email setup using sendmail:
 ```bash
-# For Postfix/mail:
-echo "Test message" | mail -s "Test Subject" your-email@domain.com
+# Test sendmail directly
+echo -e "From: test@domain.com\nSubject: Test Subject\nTo: your-email@domain.com\n\nTest message" | sendmail -f test@domain.com your-email@domain.com
 
-# For SSMTP:
-echo -e "From: test@domain.com\nSubject: Test Subject\nTo: your-email@domain.com\n\nTest message" | ssmtp -t
+# Check mail queue
+mailq
+
+# Check mail logs
+sudo tail -f /var/log/mail.log
 ```
 
 ## 🚀 Quick Start
@@ -283,7 +298,7 @@ The HTML reports include:
 - 🔗 Clickable broken links for easy access
 - 🎥 YouTube video error section (when applicable)
 - 📱 Mobile-responsive design with improved styling
-- 🎨 Professional branding with LEXO signature logo
+- 🎨 Professional branding with customizable logo
 
 ## 📁 Log Files (Enhanced in v1.4)
 
@@ -327,6 +342,15 @@ pip install linkchecker
 sudo apt-get install curl
 ```
 
+**"sendmail command not found"**
+```bash
+# Install postfix (provides sendmail command)
+sudo apt-get install postfix
+
+# Or install ssmtp (lightweight alternative)
+sudo apt-get install ssmtp
+```
+
 **"Cannot write to log file"** (Enhanced error handling in v1.4)
 ```bash
 # Create log file with proper permissions
@@ -335,12 +359,6 @@ sudo chmod 664 /var/log/linkchecker.log
 
 # Or use custom log file location
 LOG_FILE=/home/user/linkchecker.log ./linkchecker.sh https://example.com - en admin@example.com
-```
-
-**"mail command not found"**
-```bash
-# Install mail utilities
-sudo apt-get install mailutils
 ```
 
 **Emails not sending**
@@ -354,8 +372,11 @@ sudo postfix check
 # Check mail logs
 sudo tail -f /var/log/mail.log
 
-# Test email sending
-echo "Test" | mail -s "Test Subject" your-email@domain.com
+# Test sendmail directly
+echo -e "From: test@domain.com\nSubject: Test\nTo: you@domain.com\n\nTest message" | sendmail -f test@domain.com you@domain.com
+
+# Check mail queue
+mailq
 ```
 
 **YouTube checks timing out**
@@ -386,6 +407,15 @@ Check your script version:
 ```
 
 ## 🔄 Version History
+
+### v1.6 (2025-08-01)
+- 📧 Switched from `mail` to `sendmail` for email delivery
+- 🔧 Fixed duplicate `From:` header issue in email reports
+- 🛠️ Improved email header control and formatting
+
+### v1.5 (2025-07-31)
+- 📧 Setting proper Reply-To and Return-Path values when sending email
+- 🔧 Small refactoring improvements
 
 ### v1.4 (2025-07-28)
 - ✨ Added YouTube video availability checking
