@@ -24,7 +24,7 @@
 SCRIPT_NAME="LEXO Linkchecker"
 SCRIPT_VERSION="1.6"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36"
-LOGO_URL="https://www.lexo.ch/brandings/lexo-logo-signature.png"
+LOGO_URL="https://www.yourwebsite.tld/path-to-your-logo.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
 DEBUG="${DEBUG:-false}"
 
@@ -35,8 +35,8 @@ LINKCHECKER_BINARY="/usr/local/bin/linkchecker"
 LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
 
 # Email configuration
-MAIL_SENDER="websupport@lexo.ch"
-MAIL_SENDER_NAME="LEXO | Web Support"
+MAIL_SENDER="yourname@yourdomain.tld"
+MAIL_SENDER_NAME="Your Email Sender Name"
 
 # YouTube domains REGEX - will match on all *.youtube.[country], *.youtube.co.* as well as various short URLs like yt.be or youtu.be
 YOUTUBE_DOMAINS='https?:\/\/(([a-z0-9-]+\.)*)?(youtube(-nocookie)?\.([a-z]{2,3})(\.[a-z]{2})?|youtu\.be|yt\.be)($|\/|\?)'
