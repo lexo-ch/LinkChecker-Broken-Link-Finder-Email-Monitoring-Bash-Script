@@ -22,7 +22,7 @@
 
 # Configuration
 SCRIPT_NAME="LEXO Linkchecker"
-SCRIPT_VERSION="1.5"
+SCRIPT_VERSION="1.6"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36"
 LOGO_URL="https://www.lexo.ch/brandings/lexo-logo-signature.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
@@ -821,14 +821,18 @@ send_email() {
     local domain="${base_url#*://}"
     domain="${domain%%/*}"
     local subject="$LANG_SUBJECT - $domain"
-    
+
     log_message "Sending email to: $mailto"
 
-    if mail -s "$subject" -r "$MAIL_SENDER" \
-        -a "Content-Type: text/html; charset=UTF-8" \
-        -a "From: $MAIL_SENDER_NAME <$MAIL_SENDER>" \
-        -a "Reply-To: $MAIL_SENDER" \
-        "$mailto" < "$html_file" 2>&1; then
+    if (
+        echo "To: $mailto"
+        echo "From: $MAIL_SENDER_NAME <$MAIL_SENDER>"
+        echo "Reply-To: $MAIL_SENDER"
+        echo "Subject: $subject"
+        echo "Content-Type: text/html; charset=UTF-8"
+        echo ""
+        cat "$html_file"
+    ) | sendmail -f "$MAIL_SENDER" "$mailto" 2>&1; then
         log_message "Email sent successfully"
         return 0
     else
@@ -836,7 +840,6 @@ send_email() {
         return 1
     fi
 }
-
 
 #==============================================================================
 # Main function
