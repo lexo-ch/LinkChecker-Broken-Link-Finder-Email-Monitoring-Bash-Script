@@ -28,8 +28,9 @@ LOGO_URL="https://www.yourwebsite.tld/path-to-your-logo.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
 DEBUG="${DEBUG:-false}"
 
-# Linkchecker binary path
+# Linkchecker and sendmail binary paths
 LINKCHECKER_BINARY="/usr/local/bin/linkchecker"
+SENDMAIL_BINARY="/usr/sbin/sendmail"
 
 # Linkchecker parameters - easily configurable
 LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
@@ -832,7 +833,7 @@ send_email() {
         echo "Content-Type: text/html; charset=UTF-8"
         echo ""
         cat "$html_file"
-    ) | sendmail -f "$MAIL_SENDER" "$mailto" 2>&1; then
+    ) | ${SENDMAIL_BINARY} -f "$MAIL_SENDER" "$mailto" 2>&1; then
         log_message "Email sent successfully"
         return 0
     else
