@@ -6,6 +6,12 @@
 # This script runs linkchecker on a website and sends an HTML email report
 # if any broken links are found. Additionally checks YouTube video availability.
 #
+# REQUIREMENTS:
+# - linkchecker: Main link checking tool
+# - curl-impersonate: Used for all external HTTP requests (403 checks & YouTube API)
+#   Download from: https://github.com/lwthiker/curl-impersonate/releases
+# - mail/sendmail: For sending email reports
+#
 # CRON Behavior:
 # - Silent operation: Only errors appear on stderr (triggering CRON emails)
 # - All INFO/DEBUG messages go only to log file when DEBUG=false
@@ -16,15 +22,15 @@
 # 2025-07-28	Current version of linkchecker (10.5.0, release 2024-09-03) encounters issues if the link protocol is not written in all small caps.
 #		In tests it sometimes does not process HTTPS whereas it processes the same link without issues if the protocol is written in small caps (https)
 #
-# Author: LEXO
-# Date: 2025-07-28
+# Author:   LEXO
+# Date:     2025-08-12
 #==============================================================================
 
 # Configuration
 SCRIPT_NAME="LEXO Linkchecker"
-SCRIPT_VERSION="1.6"
+SCRIPT_VERSION="1.7"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36"
-LOGO_URL="https://www.yourwebsite.tld/path-to-your-logo.png"
+LOGO_URL="https://www.lexo.ch/brandings/lexo-logo-signature.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
 DEBUG="${DEBUG:-false}"
 
@@ -32,12 +38,33 @@ DEBUG="${DEBUG:-false}"
 LINKCHECKER_BINARY="/usr/local/bin/linkchecker"
 SENDMAIL_BINARY="/usr/sbin/sendmail"
 
+# Curl-impersonate binary path
+# ================================================================================================
+# IMPORTANT: This script uses curl-impersonate for ALL external requests:
+# - 403 double-checking to bypass WAF/CDN protections (like Cloudflare)
+# - YouTube oEmbed API calls for video availability checks
+#
+# curl-impersonate mimics real browser TLS fingerprints and behavior, making it much more
+# effective at bypassing WAF protections and accessing APIs that block automated tools.
+#
+# To install curl-impersonate:
+# 1. Download the latest release from: https://github.com/lwthiker/curl-impersonate/releases
+# 2. Extract the archive to a directory (e.g., /opt/curl-impersonate/)
+# 3. Update the path below to point to the curl-impersonate binary
+#
+# Example installation:
+#   wget https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
+#   tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz -C /opt/curl-impersonate/
+#   chmod +x /opt/curl-impersonate/curl-impersonate-chrome
+# ================================================================================================
+CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-/opt/curl-impersonate/curl-impersonate-chrome}"
+
 # Linkchecker parameters - easily configurable
 LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
 
 # Email configuration
-MAIL_SENDER="yourname@yourdomain.tld"
-MAIL_SENDER_NAME="Your Email Sender Name"
+MAIL_SENDER="your@email.tld"
+MAIL_SENDER_NAME="YourCompany Support"
 
 # YouTube domains REGEX - will match on all *.youtube.[country], *.youtube.co.* as well as various short URLs like yt.be or youtu.be
 YOUTUBE_DOMAINS='https?:\/\/(([a-z0-9-]+\.)*)?(youtube(-nocookie)?\.([a-z]{2,3})(\.[a-z]{2})?|youtu\.be|yt\.be)($|\/|\?)'
@@ -47,10 +74,17 @@ YOUTUBE_OEMBED_DELAY=1  # Delay in seconds between requests
 YOUTUBE_OEMBED_MAX_PER_MINUTE=30  # Max requests per minute (conservative)
 YOUTUBE_OEMBED_TIMEOUT=10  # Timeout for each request
 
+# 403 Double-check configuration
+CURL_TIMEOUT=15  # Timeout for curl double-check requests
+CURL_MAX_REDIRECTS=10  # Maximum number of redirects to follow
+CURL_RETRY_DELAY=0.5  # Delay between curl requests to avoid rate limiting
+
 # Global exclude patterns (REGEX) - one pattern per line
 EXCLUDES=(
     "\/xmlrpc\.php\b"
-#   "\?p=[0-9]+"
+    "\/wp-json\/"
+    "\/feed\/"
+    "\?p=[0-9]+"
 )
 
 # Initialize arrays
@@ -65,6 +99,9 @@ declare -a ALL_URLS_PARENT=()
 declare -a YOUTUBE_ERROR_URLS=()
 declare -a YOUTUBE_ERROR_TEXT=()
 declare -a YOUTUBE_ERROR_PARENT=()
+declare -a FORBIDDEN_URL_LIST=()
+declare -a FORBIDDEN_PARENT_LIST=()
+declare -a FORBIDDEN_FALSE_POSITIVES=()
 
 # Global counters
 TOTAL_URLS=0
@@ -74,6 +111,9 @@ CHECK_DURATION=0
 ERRORS_FOUND=false
 YOUTUBE_URLS_CHECKED=0
 YOUTUBE_ERRORS=0
+FORBIDDEN_URLS_FOUND=0
+FORBIDDEN_FALSE_POSITIVES_COUNT=0
+FORBIDDEN_CONFIRMED_COUNT=0
 
 # Language variables - will be set by set_language_texts()
 LANG_SUBJECT=""
@@ -98,9 +138,11 @@ LANG_YOUTUBE_ERRORS=""
 LANG_YOUTUBE_VIDEO_DELETED=""
 LANG_YOUTUBE_VIDEO_PRIVATE=""
 LANG_YOUTUBE_CHECK_FAILED=""
+LANG_FORBIDDEN_DOUBLE_CHECK=""
+LANG_FORBIDDEN_FALSE_POSITIVES=""
 
 #==============================================================================
-# Helper Functions (must be defined first)
+# Helper Functions
 #==============================================================================
 
 # Error handling
@@ -162,6 +204,354 @@ clean_field() {
 }
 
 #==============================================================================
+# Core Utility Functions
+#==============================================================================
+
+# Show usage
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
+
+Parameters:
+  base_url        Base URL to check (e.g., https://www.example.com)
+  cms_login_url   CMS login URL or "-" if none
+  language        Report language: de or en
+  mailto          Comma-separated email addresses
+
+Options:
+  --exclude=REGEX Add exclude pattern (can be used multiple times)
+  --debug         Enable debug output
+  -h, --help      Show this help
+
+Environment:
+  DEBUG=true                      Enable debug output
+  LOG_FILE=path                   Set log file location (default: $LOG_FILE)
+  CURL_IMPERSONATE_BINARY=path    Path to curl-impersonate binary (default: $CURL_IMPERSONATE_BINARY)
+
+Prerequisites:
+  - linkchecker: The main link checking tool
+  - curl-impersonate: Required for both 403 checking and YouTube validation
+    Download from: https://github.com/lwthiker/curl-impersonate/releases
+  - mail: For sending email reports
+
+Features:
+  - Checks all links on website using linkchecker
+  - Double-checks 403 errors with curl-impersonate to eliminate false positives
+  - Uses browser-like TLS fingerprint to bypass WAF/CDN protections
+  - Validates YouTube video availability using oEmbed API
+  - Sends HTML email report if broken links or unavailable videos found
+  - Rate limiting for YouTube API (max $YOUTUBE_OEMBED_MAX_PER_MINUTE requests/minute)
+
+Examples:
+  $(basename "$0") https://example.com - en admin@example.com
+  $(basename "$0") --exclude='\.pdf$' https://example.com - de admin@example.com
+
+CRON Usage:
+  # Silent operation (only errors to stderr)
+  0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com
+
+  # With custom log file and curl-impersonate path
+  0 2 * * * LOG_FILE=/home/user/linkchecker.log CURL_IMPERSONATE_BINARY=/usr/local/bin/curl-impersonate-chrome /path/to/linkchecker.sh https://example.com - en admin@example.com
+
+Installing curl-impersonate:
+  wget https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
+  tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz -C /opt/curl-impersonate/
+  chmod +x /opt/curl-impersonate/curl-impersonate-chrome
+EOF
+}
+
+# Set language texts
+set_language_texts() {
+    local lang="$1"
+
+    if [[ "$lang" == "en" ]]; then
+        LANG_SUBJECT="Broken Links Found on Website"
+        LANG_INTRO_TITLE="Broken Links Discovered on Your Website"
+        LANG_INTRO_TEXT="The automatic check found broken links on your website"
+        LANG_CMS_TITLE="CMS Login"
+        LANG_CMS_TEXT="To fix these issues, you can log in at the following link:"
+        LANG_SUMMARY_TITLE="Summary"
+        LANG_DETAILS_TITLE="Detailed Error Report"
+        LANG_DURATION="Check Duration"
+        LANG_TOTAL_URLS="Total URLs Checked"
+        LANG_ERROR_URLS="URLs with Errors"
+        LANG_SUCCESS_RATE="Success Rate"
+        LANG_COLUMN_URL="URL"
+        LANG_COLUMN_ERROR="Error"
+        LANG_COLUMN_PARENT="Found on Page"
+        LANG_FOOTER_TEXT="This report was generated automatically by $SCRIPT_NAME."
+        LANG_TIMEOUT_ERROR="Request timeout (>30s)"
+        LANG_YOUTUBE_SECTION="YouTube Video Errors"
+        LANG_YOUTUBE_URLS_CHECKED="YouTube URLs Checked"
+        LANG_YOUTUBE_ERRORS="YouTube Videos Unavailable"
+        LANG_YOUTUBE_VIDEO_DELETED="Video deleted or unavailable"
+        LANG_YOUTUBE_VIDEO_PRIVATE="Video is private"
+        LANG_YOUTUBE_CHECK_FAILED="Could not check video status"
+        LANG_FORBIDDEN_DOUBLE_CHECK="403 Errors Double-Checked"
+        LANG_FORBIDDEN_FALSE_POSITIVES="False Positives Removed"
+    else
+        LANG_SUBJECT="Defekte Links auf der Website gefunden"
+        LANG_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
+        LANG_INTRO_TEXT="Die automatische Überprüfung fand fehlerhafte Links auf Ihrer Webseite"
+        LANG_CMS_TITLE="CMS Login"
+        LANG_CMS_TEXT="Für das Beheben der Probleme können Sie sich unter folgendem Link einloggen:"
+        LANG_SUMMARY_TITLE="Zusammenfassung"
+        LANG_DETAILS_TITLE="Detaillierter Fehlerbericht"
+        LANG_DURATION="Überprüfungsdauer"
+        LANG_TOTAL_URLS="Anzahl überprüfter URLs"
+        LANG_ERROR_URLS="URLs mit Fehlern"
+        LANG_SUCCESS_RATE="Erfolgsrate"
+        LANG_COLUMN_URL="URL"
+        LANG_COLUMN_ERROR="Fehler"
+        LANG_COLUMN_PARENT="Gefunden auf Seite"
+        LANG_FOOTER_TEXT="Dieser Bericht wurde automatisch vom $SCRIPT_NAME generiert."
+        LANG_TIMEOUT_ERROR="Anfrage-Zeitüberschreitung (>30s)"
+        LANG_YOUTUBE_SECTION="YouTube Video Fehler"
+        LANG_YOUTUBE_URLS_CHECKED="YouTube URLs überprüft"
+        LANG_YOUTUBE_ERRORS="YouTube Videos nicht verfügbar"
+        LANG_YOUTUBE_VIDEO_DELETED="Video gelöscht oder nicht verfügbar"
+        LANG_YOUTUBE_VIDEO_PRIVATE="Video ist privat"
+        LANG_YOUTUBE_CHECK_FAILED="Videostatus konnte nicht geprüft werden"
+        LANG_FORBIDDEN_DOUBLE_CHECK="403 Fehler doppelt geprüft"
+        LANG_FORBIDDEN_FALSE_POSITIVES="Falsch-Positive entfernt"
+    fi
+}
+
+# Parse command line arguments
+parse_arguments() {
+    # Use global array REMAINING_ARGS
+    REMAINING_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --exclude=*)
+                local pattern="${1#*=}"
+                if [[ -z "$pattern" ]]; then
+                    die "Empty exclude pattern"
+                fi
+                DYNAMIC_EXCLUDES+=("$pattern")
+                debug_message "Added exclude pattern: $pattern"
+                shift
+                ;;
+            --debug)
+                DEBUG="true"
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -*)
+                if [[ "$1" == "-" ]]; then
+                    # Single dash is a valid parameter value, not an option
+                    REMAINING_ARGS+=("$1")
+                    shift
+                else
+                    die "Unknown option: $1"
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+# Validate parameters
+validate_parameters() {
+    local base_url="$1"
+    local cms_login_url="$2"
+    local language="$3"
+    local mailto="$4"
+
+    [[ "$base_url" =~ ^https?:// ]] || die "Invalid base URL: $base_url"
+    [[ "$cms_login_url" == "-" || "$cms_login_url" =~ ^https?:// ]] || die "Invalid CMS URL: $cms_login_url"
+    [[ "$language" =~ ^(de|en)$ ]] || die "Language must be 'de' or 'en'"
+    [[ "$mailto" =~ @ ]] || die "Invalid email format: $mailto"
+}
+
+# Check prerequisites
+check_prerequisites() {
+    # Check linkchecker
+    if [[ ! -x "$LINKCHECKER_BINARY" ]]; then
+        die "linkchecker not found or not executable at: $LINKCHECKER_BINARY"
+    fi
+
+    # Check mail command
+    if ! command -v mail &>/dev/null; then
+        die "mail command not found"
+    fi
+    
+    # Check curl-impersonate for both 403 double-checking and YouTube checks
+    if [[ ! -x "$CURL_IMPERSONATE_BINARY" ]]; then
+        echo "" >&2
+        echo "ERROR: curl-impersonate not found or not executable at: $CURL_IMPERSONATE_BINARY" >&2
+        echo "" >&2
+        echo "curl-impersonate is required for:" >&2
+        echo "  - Accurate 403 error checking (bypasses WAF/CDN protections)" >&2
+        echo "  - YouTube video availability checks" >&2
+        echo "" >&2
+        echo "To install curl-impersonate:" >&2
+        echo "1. Download from: https://github.com/lwthiker/curl-impersonate/releases" >&2
+        echo "2. Extract to a directory (e.g., /opt/curl-impersonate/)" >&2
+        echo "3. Set CURL_IMPERSONATE_BINARY environment variable or edit this script" >&2
+        echo "" >&2
+        echo "Example installation:" >&2
+        echo "  wget https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz" >&2
+        echo "  tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz -C /opt/curl-impersonate/" >&2
+        echo "  export CURL_IMPERSONATE_BINARY=/opt/curl-impersonate/curl-impersonate-chrome" >&2
+        echo "" >&2
+        exit 1
+    fi
+
+    # Check log file writability - CRITICAL for CRON
+    if ! touch "$LOG_FILE" 2>/dev/null; then
+        # For CRON: Exit with error so CRON will notify
+        die "Cannot write to log file: $LOG_FILE - Set LOG_FILE environment variable to a writable location"
+    fi
+
+    debug_message "Prerequisites OK (linkchecker, curl-impersonate, mail, and log file access verified)"
+}
+
+# Check if URL should be excluded
+is_url_excluded() {
+    local url="$1"
+
+    # Check all exclude patterns
+    for pattern in "${EXCLUDES[@]}" "${DYNAMIC_EXCLUDES[@]}"; do
+        if [[ "$url" =~ $pattern ]]; then
+            debug_message "URL excluded by pattern '$pattern': $url"
+            return 0
+        fi
+    done
+    return 1
+}
+
+#==============================================================================
+# 403 Double-Check Functions
+#==============================================================================
+
+# Function to handle spaces in URL for curl
+fix_spaces_for_curl() {
+    local url="$1"
+    # URL encode spaces as %20
+    echo "$url" | sed 's/ /%20/g'
+}
+
+# Double-check a single URL with curl-impersonate, following redirects
+# Used for both 403 verification and YouTube API calls
+double_check_url_with_curl() {
+    local url="$1"
+    local fixed_url=$(fix_spaces_for_curl "$url")
+    local final_status
+    
+    # Use curl-impersonate with browser-like headers and TLS fingerprint
+    # This bypasses most WAF/CDN protections that block regular curl
+    final_status=$("$CURL_IMPERSONATE_BINARY" \
+        --ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-SHA,ECDHE-RSA-AES256-SHA,AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-SHA,AES256-SHA \
+        -H 'sec-ch-ua: "Chromium";v="116", "Not)A;Brand";v="24", "Google Chrome";v="116"' \
+        -H 'sec-ch-ua-mobile: ?0' \
+        -H 'sec-ch-ua-platform: "Windows"' \
+        -H 'Upgrade-Insecure-Requests: 1' \
+        -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36' \
+        -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' \
+        -H 'Sec-Fetch-Site: none' \
+        -H 'Sec-Fetch-Mode: navigate' \
+        -H 'Sec-Fetch-User: ?1' \
+        -H 'Sec-Fetch-Dest: document' \
+        -H 'Accept-Encoding: gzip, deflate, br' \
+        -H 'Accept-Language: en-US,en;q=0.9' \
+        --http2 --http2-no-server-push --compressed \
+        --tlsv1.2 --alps --tls-permute-extensions \
+        --cert-compression brotli \
+        --head \
+        --location \
+        --max-redirs "$CURL_MAX_REDIRECTS" \
+        --connect-timeout "$CURL_TIMEOUT" \
+        --max-time "$((CURL_TIMEOUT * 2))" \
+        -o /dev/null \
+        -s \
+        -w "%{http_code}\n" \
+        "$fixed_url" 2>/dev/null)
+    
+    echo "$final_status"
+}
+
+# Process all 403 errors with double-checking
+double_check_forbidden_urls() {
+    if [[ ${#FORBIDDEN_URL_LIST[@]} -eq 0 ]]; then
+        debug_message "No 403 errors to double-check"
+        return
+    fi
+    
+    log_message "Starting double-check of ${#FORBIDDEN_URL_LIST[@]} URLs with 403 errors using curl-impersonate"
+    
+    local confirmed_error_urls=()
+    local confirmed_error_text=()
+    local confirmed_error_parent=()
+    
+    FORBIDDEN_FALSE_POSITIVES=()
+    FORBIDDEN_FALSE_POSITIVES_COUNT=0
+    FORBIDDEN_CONFIRMED_COUNT=0
+    
+    for i in "${!FORBIDDEN_URL_LIST[@]}"; do
+        local url="${FORBIDDEN_URL_LIST[$i]}"
+        local parent="${FORBIDDEN_PARENT_LIST[$i]}"
+        
+        debug_message "Double-checking 403 URL with curl-impersonate: $url"
+        
+        # Small delay to avoid rate limiting
+        sleep "$CURL_RETRY_DELAY"
+        
+        # Double-check with curl-impersonate
+        local curl_status=$(double_check_url_with_curl "$url")
+        
+        if [[ -z "$curl_status" ]]; then
+            # Connection failed - keep as error
+            debug_message "Curl-impersonate check failed for: $url (connection error)"
+            confirmed_error_urls+=("$url")
+            confirmed_error_text+=("HTTP 403 (confirmed: connection failed)")
+            confirmed_error_parent+=("$parent")
+            ((FORBIDDEN_CONFIRMED_COUNT++))
+        elif [[ "$curl_status" -ge 200 && "$curl_status" -lt 300 ]]; then
+            # False positive - URL is actually OK
+            debug_message "False positive detected: $url (curl-impersonate returned $curl_status)"
+            FORBIDDEN_FALSE_POSITIVES+=("$url")
+            ((FORBIDDEN_FALSE_POSITIVES_COUNT++))
+        else
+            # Confirmed error (could be 403 or another error after redirects)
+            debug_message "Confirmed error for: $url (curl-impersonate returned $curl_status)"
+            confirmed_error_urls+=("$url")
+            if [[ "$curl_status" -eq 403 ]]; then
+                confirmed_error_text+=("HTTP 403 (confirmed)")
+            else
+                confirmed_error_text+=("HTTP 403 (final status: $curl_status)")
+            fi
+            confirmed_error_parent+=("$parent")
+            ((FORBIDDEN_CONFIRMED_COUNT++))
+        fi
+    done
+    
+    # Add confirmed 403 errors back to the main error lists
+    for i in "${!confirmed_error_urls[@]}"; do
+        ERROR_URL_LIST+=("${confirmed_error_urls[$i]}")
+        ERROR_TEXT_LIST+=("${confirmed_error_text[$i]}")
+        ERROR_PARENT_LIST+=("${confirmed_error_parent[$i]}")
+    done
+    
+    # Update error count
+    ERROR_URLS=${#ERROR_URL_LIST[@]}
+    
+    # Update global error flag
+    if [[ ${#ERROR_URL_LIST[@]} -gt 0 ]]; then
+        ERRORS_FOUND=true
+    fi
+    
+    log_message "403 double-check complete: $FORBIDDEN_CONFIRMED_COUNT confirmed, $FORBIDDEN_FALSE_POSITIVES_COUNT false positives (bypassed WAF/CDN blocks)"
+}
+
+#==============================================================================
 # YouTube Functions
 #==============================================================================
 
@@ -203,7 +593,7 @@ extract_youtube_video_id() {
     echo "$video_id"
 }
 
-# Check YouTube video availability using oEmbed
+# Check YouTube video availability using oEmbed with curl-impersonate
 check_youtube_video() {
     local video_id="$1"
     local status
@@ -214,8 +604,17 @@ check_youtube_video() {
 
     debug_message "Checking YouTube video: $video_id"
 
-    # Make oEmbed request with timeout
-    response=$(curl -s -w "\n%{http_code}" --max-time "$YOUTUBE_OEMBED_TIMEOUT" "$oembed_url" 2>/dev/null)
+    # Make oEmbed request with curl-impersonate (using simpler headers for API calls)
+    response=$("$CURL_IMPERSONATE_BINARY" \
+        -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36' \
+        -H 'Accept: application/json' \
+        -H 'Accept-Language: en-US,en;q=0.9' \
+        --compressed \
+        --tlsv1.2 \
+        --max-time "$YOUTUBE_OEMBED_TIMEOUT" \
+        -s \
+        -w "\n%{http_code}" \
+        "$oembed_url" 2>/dev/null)
     status=$(echo "$response" | tail -n1)
 
     # Return status code
@@ -228,7 +627,7 @@ process_youtube_urls() {
     local requests_this_minute=0
     local minute_start=$(date +%s)
 
-    log_message "Starting YouTube video availability check"
+    log_message "Starting YouTube video availability check (using curl-impersonate)"
 
     # Reset YouTube error arrays
     YOUTUBE_ERROR_URLS=()
@@ -303,7 +702,7 @@ process_youtube_urls() {
         fi
     done
 
-    log_message "YouTube check complete: $YOUTUBE_URLS_CHECKED checked, $YOUTUBE_ERRORS errors found"
+    log_message "YouTube check complete (using curl-impersonate): $YOUTUBE_URLS_CHECKED checked, $YOUTUBE_ERRORS errors found"
 
     # Update global error flag if YouTube errors found
     if (( YOUTUBE_ERRORS > 0 )); then
@@ -312,194 +711,8 @@ process_youtube_urls() {
 }
 
 #==============================================================================
-# Core Functions
+# Linkchecker Functions
 #==============================================================================
-
-# Check if URL should be excluded
-is_url_excluded() {
-    local url="$1"
-
-    # Check all exclude patterns
-    for pattern in "${EXCLUDES[@]}" "${DYNAMIC_EXCLUDES[@]}"; do
-        if [[ "$url" =~ $pattern ]]; then
-            debug_message "URL excluded by pattern '$pattern': $url"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Show usage
-show_usage() {
-    cat << EOF
-Usage: $(basename "$0") [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
-
-Parameters:
-  base_url        Base URL to check (e.g., https://www.example.com)
-  cms_login_url   CMS login URL or "-" if none
-  language        Report language: de or en
-  mailto          Comma-separated email addresses
-
-Options:
-  --exclude=REGEX Add exclude pattern (can be used multiple times)
-  --debug         Enable debug output
-  -h, --help      Show this help
-
-Environment:
-  DEBUG=true      Enable debug output
-  LOG_FILE=path   Set log file location (default: $LOG_FILE)
-
-Features:
-  - Checks all links on website using linkchecker
-  - Additionally checks YouTube video availability using oEmbed API
-  - Sends HTML email report if broken links or unavailable videos found
-  - Rate limiting for YouTube API (max $YOUTUBE_OEMBED_MAX_PER_MINUTE requests/minute)
-
-Examples:
-  $(basename "$0") https://example.com - en admin@example.com
-  $(basename "$0") --exclude='\.pdf$' https://example.com - de admin@example.com
-
-CRON Usage:
-  # Silent operation (only errors to stderr)
-  0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com
-
-  # With custom log file
-  0 2 * * * LOG_FILE=/home/user/linkchecker.log /path/to/linkchecker.sh https://example.com - en admin@example.com
-EOF
-}
-
-# Set language texts
-set_language_texts() {
-    local lang="$1"
-
-    if [[ "$lang" == "en" ]]; then
-        LANG_SUBJECT="Broken Links Found on Website"
-        LANG_INTRO_TITLE="Broken Links Discovered on Your Website"
-        LANG_INTRO_TEXT="The automatic check found broken links on your website"
-        LANG_CMS_TITLE="CMS Login"
-        LANG_CMS_TEXT="To fix these issues, you can log in at the following link:"
-        LANG_SUMMARY_TITLE="Summary"
-        LANG_DETAILS_TITLE="Detailed Error Report"
-        LANG_DURATION="Check Duration"
-        LANG_TOTAL_URLS="Total URLs Checked"
-        LANG_ERROR_URLS="URLs with Errors"
-        LANG_SUCCESS_RATE="Success Rate"
-        LANG_COLUMN_URL="URL"
-        LANG_COLUMN_ERROR="Error"
-        LANG_COLUMN_PARENT="Found on Page"
-        LANG_FOOTER_TEXT="This report was generated automatically by $SCRIPT_NAME."
-        LANG_TIMEOUT_ERROR="Request timeout (>30s)"
-        LANG_YOUTUBE_SECTION="YouTube Video Errors"
-        LANG_YOUTUBE_URLS_CHECKED="YouTube URLs Checked"
-        LANG_YOUTUBE_ERRORS="YouTube Videos Unavailable"
-        LANG_YOUTUBE_VIDEO_DELETED="Video deleted or unavailable"
-        LANG_YOUTUBE_VIDEO_PRIVATE="Video is private"
-        LANG_YOUTUBE_CHECK_FAILED="Could not check video status"
-    else
-        LANG_SUBJECT="Defekte Links auf der Website gefunden"
-        LANG_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
-        LANG_INTRO_TEXT="Die automatische Überprüfung fand fehlerhafte Links auf Ihrer Webseite"
-        LANG_CMS_TITLE="CMS Login"
-        LANG_CMS_TEXT="Für das Beheben der Probleme können Sie sich unter folgendem Link einloggen:"
-        LANG_SUMMARY_TITLE="Zusammenfassung"
-        LANG_DETAILS_TITLE="Detaillierter Fehlerbericht"
-        LANG_DURATION="Überprüfungsdauer"
-        LANG_TOTAL_URLS="Anzahl überprüfter URLs"
-        LANG_ERROR_URLS="URLs mit Fehlern"
-        LANG_SUCCESS_RATE="Erfolgsrate"
-        LANG_COLUMN_URL="URL"
-        LANG_COLUMN_ERROR="Fehler"
-        LANG_COLUMN_PARENT="Gefunden auf Seite"
-        LANG_FOOTER_TEXT="Dieser Bericht wurde automatisch vom $SCRIPT_NAME generiert."
-        LANG_TIMEOUT_ERROR="Anfrage-Zeitüberschreitung (>30s)"
-        LANG_YOUTUBE_SECTION="YouTube Video Fehler"
-        LANG_YOUTUBE_URLS_CHECKED="YouTube URLs überprüft"
-        LANG_YOUTUBE_ERRORS="YouTube Videos nicht verfügbar"
-        LANG_YOUTUBE_VIDEO_DELETED="Video gelöscht oder nicht verfügbar"
-        LANG_YOUTUBE_VIDEO_PRIVATE="Video ist privat"
-        LANG_YOUTUBE_CHECK_FAILED="Videostatus konnte nicht geprüft werden"
-    fi
-}
-
-# Parse command line arguments
-parse_arguments() {
-    # Use global array REMAINING_ARGS
-    REMAINING_ARGS=()
-
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --exclude=*)
-                local pattern="${1#*=}"
-                if [[ -z "$pattern" ]]; then
-                    die "Empty exclude pattern"
-                fi
-                DYNAMIC_EXCLUDES+=("$pattern")
-                debug_message "Added exclude pattern: $pattern"
-                shift
-                ;;
-            --debug)
-                DEBUG="true"
-                shift
-                ;;
-            -h|--help)
-                show_usage
-                exit 0
-                ;;
-            -*)
-		if [[ "$1" == "-" ]]; then
-			# Single dash is a valid parameter value, not an option
-			REMAINING_ARGS+=("$1")
-			shift
-		else
-			die "Unknown option: $1"
-		fi
-                ;;
-            *)
-                REMAINING_ARGS+=("$1")
-                shift
-                ;;
-        esac
-    done
-}
-
-# Validate parameters
-validate_parameters() {
-    local base_url="$1"
-    local cms_login_url="$2"
-    local language="$3"
-    local mailto="$4"
-
-    [[ "$base_url" =~ ^https?:// ]] || die "Invalid base URL: $base_url"
-    [[ "$cms_login_url" == "-" || "$cms_login_url" =~ ^https?:// ]] || die "Invalid CMS URL: $cms_login_url"
-    [[ "$language" =~ ^(de|en)$ ]] || die "Language must be 'de' or 'en'"
-    [[ "$mailto" =~ @ ]] || die "Invalid email format: $mailto"
-}
-
-# Check prerequisites
-check_prerequisites() {
-    # Check linkchecker
-    if [[ ! -x "$LINKCHECKER_BINARY" ]]; then
-        die "linkchecker not found or not executable at: $LINKCHECKER_BINARY"
-    fi
-
-    # Check mail command
-    if ! command -v mail &>/dev/null; then
-        die "mail command not found"
-    fi
-
-    # Check curl command (for YouTube checks)
-    if ! command -v curl &>/dev/null; then
-        die "curl command not found"
-    fi
-
-    # Check log file writability - CRITICAL for CRON
-    if ! touch "$LOG_FILE" 2>/dev/null; then
-        # For CRON: Exit with error so CRON will notify
-        die "Cannot write to log file: $LOG_FILE - Set LOG_FILE environment variable to a writable location"
-    fi
-
-    debug_message "Prerequisites OK"
-}
 
 # Parse linkchecker output
 parse_linkchecker_output() {
@@ -518,6 +731,9 @@ parse_linkchecker_output() {
     ERROR_PARENT_LIST=()
     ALL_URLS_LIST=()
     ALL_URLS_PARENT=()
+    FORBIDDEN_URL_LIST=()
+    FORBIDDEN_PARENT_LIST=()
+    FORBIDDEN_URLS_FOUND=0
 
     while IFS= read -r line; do
         # Skip empty lines and comments
@@ -556,7 +772,15 @@ parse_linkchecker_output() {
 
             # Check for errors
             local error_text=""
-            if [[ "$result" =~ ^[0-9]+$ ]] && [[ "$result" -ge 400 ]]; then
+            local is_403=false
+            
+            if [[ "$result" =~ ^403 ]]; then
+                # Store 403 errors separately for double-checking
+                FORBIDDEN_URL_LIST+=("$url")
+                FORBIDDEN_PARENT_LIST+=("$parent")
+                ((FORBIDDEN_URLS_FOUND++))
+                debug_message "403 error found, will double-check: $url"
+            elif [[ "$result" =~ ^[0-9]+$ ]] && [[ "$result" -ge 400 ]]; then
                 error_text="HTTP $result"
             elif [[ "$result" =~ ^[0-9]+ ]]; then
                 local code="${result%% *}"
@@ -567,6 +791,7 @@ parse_linkchecker_output() {
                 error_text="$result"
             fi
 
+            # Only add non-403 errors directly (403s will be double-checked)
             if [[ -n "$error_text" ]]; then
                 ERROR_URL_LIST+=("$url")
                 ERROR_TEXT_LIST+=("$error_text")
@@ -578,7 +803,7 @@ parse_linkchecker_output() {
         fi
     done < "$file"
 
-    log_message "Linkchecker results: $TOTAL_URLS checked, $ERROR_URLS errors, $EXCLUDED_URLS excluded"
+    log_message "Linkchecker initial results: $TOTAL_URLS checked, $ERROR_URLS errors, $FORBIDDEN_URLS_FOUND 403s to double-check, $EXCLUDED_URLS excluded"
 }
 
 # Run linkchecker
@@ -615,7 +840,14 @@ run_linkchecker() {
 
     # Parse output
     parse_linkchecker_output "$temp_output"
+    
+    # Double-check 403 errors
+    double_check_forbidden_urls
 }
+
+#==============================================================================
+# Report Generation Functions
+#==============================================================================
 
 # Generate HTML report
 generate_html_report() {
@@ -674,6 +906,7 @@ EOF
         .footer { text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 11px; color: #7f8c8d; }
         .success-rate { color: #27ae60; font-weight: bold; }
         .error-count { color: #e74c3c; font-weight: bold; }
+        .false-positive-count { color: #f39c12; font-weight: bold; }
         .youtube-section { margin-top: 40px; }
         .youtube-error { background: #fff3cd; }
     </style>
@@ -718,6 +951,14 @@ EOF
             <tr><th>$LANG_TOTAL_URLS</th><td>$TOTAL_URLS</td></tr>
             <tr><th>$LANG_ERROR_URLS</th><td class="error-count">$ERROR_URLS</td></tr>
 EOF
+
+    # Add 403 double-check stats if any were checked
+    if (( FORBIDDEN_URLS_FOUND > 0 )); then
+        cat >> "$output_file" << EOF
+            <tr><th>$LANG_FORBIDDEN_DOUBLE_CHECK</th><td>$FORBIDDEN_URLS_FOUND</td></tr>
+            <tr><th>$LANG_FORBIDDEN_FALSE_POSITIVES</th><td class="false-positive-count">$FORBIDDEN_FALSE_POSITIVES_COUNT</td></tr>
+EOF
+    fi
 
     # Add YouTube stats if any were checked
     if (( YOUTUBE_URLS_CHECKED > 0 )); then
@@ -862,6 +1103,7 @@ main() {
         echo "* DEBUG: $DEBUG"
         echo "* USER: $(whoami)"
         echo "* PID: $$"
+        echo "* CURL-IMPERSONATE: $CURL_IMPERSONATE_BINARY"
         echo "======================================================"
     } >> "$LOG_FILE" 2>/dev/null || true
 
@@ -907,7 +1149,7 @@ main() {
     log_message "Parameters: CMS=$cms_login_url, Language=$language, Recipients=$mailto"
     log_message "Dynamic excludes: ${#DYNAMIC_EXCLUDES[@]}"
 
-    # Run linkchecker
+    # Run linkchecker (includes 403 double-checking)
     run_linkchecker "$base_url" || exit 1
 
     # Process YouTube URLs
@@ -916,6 +1158,9 @@ main() {
     # Check results
     if [[ "$ERRORS_FOUND" != "true" ]]; then
         log_message "No errors found - no email will be sent"
+        if (( FORBIDDEN_FALSE_POSITIVES_COUNT > 0 )); then
+            log_message "Note: Removed $FORBIDDEN_FALSE_POSITIVES_COUNT false positive 403 errors"
+        fi
         log_message "LINKCHECKER RUN COMPLETED - $(date)"
         log_message "======================================================"
         return 0
