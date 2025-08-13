@@ -8,7 +8,7 @@
 #
 # REQUIREMENTS:
 # - linkchecker: Main link checking tool
-# - curl-impersonate: Used for all external HTTP requests (403 checks & YouTube API)
+# - curl-impersonate: Used for all external HTTP requests (error verification & YouTube API)
 #   Download from: https://github.com/lwthiker/curl-impersonate/releases
 # - mail/sendmail: For sending email reports
 #
@@ -23,12 +23,12 @@
 #		In tests it sometimes does not process HTTPS whereas it processes the same link without issues if the protocol is written in small caps (https)
 #
 # Author:   LEXO
-# Date:     2025-08-12
+# Date:     2025-08-13
 #==============================================================================
 
 # Configuration
 SCRIPT_NAME="LEXO Linkchecker"
-SCRIPT_VERSION="1.7"
+SCRIPT_VERSION="1.8"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36"
 LOGO_URL="https://www.lexo.ch/brandings/lexo-logo-signature.png"
 LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
@@ -41,7 +41,7 @@ SENDMAIL_BINARY="/usr/sbin/sendmail"
 # Curl-impersonate binary path
 # ================================================================================================
 # IMPORTANT: This script uses curl-impersonate for ALL external requests:
-# - 403 double-checking to bypass WAF/CDN protections (like Cloudflare)
+# - Double-checking ALL errors (403s, timeouts, 404s, etc.) to bypass WAF/CDN protections
 # - YouTube oEmbed API calls for video availability checks
 #
 # curl-impersonate mimics real browser TLS fingerprints and behavior, making it much more
@@ -57,7 +57,7 @@ SENDMAIL_BINARY="/usr/sbin/sendmail"
 #   tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz -C /opt/curl-impersonate/
 #   chmod +x /opt/curl-impersonate/curl-impersonate-chrome
 # ================================================================================================
-CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-/opt/curl-impersonate/curl-impersonate-chrome}"
+CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-/home/srvdata/curl-impersonate/curl-impersonate-chrome}"
 
 # Linkchecker parameters - easily configurable
 LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
@@ -74,7 +74,7 @@ YOUTUBE_OEMBED_DELAY=1  # Delay in seconds between requests
 YOUTUBE_OEMBED_MAX_PER_MINUTE=30  # Max requests per minute (conservative)
 YOUTUBE_OEMBED_TIMEOUT=10  # Timeout for each request
 
-# 403 Double-check configuration
+# Error double-check configuration
 CURL_TIMEOUT=15  # Timeout for curl double-check requests
 CURL_MAX_REDIRECTS=10  # Maximum number of redirects to follow
 CURL_RETRY_DELAY=0.5  # Delay between curl requests to avoid rate limiting
@@ -99,9 +99,12 @@ declare -a ALL_URLS_PARENT=()
 declare -a YOUTUBE_ERROR_URLS=()
 declare -a YOUTUBE_ERROR_TEXT=()
 declare -a YOUTUBE_ERROR_PARENT=()
-declare -a FORBIDDEN_URL_LIST=()
-declare -a FORBIDDEN_PARENT_LIST=()
-declare -a FORBIDDEN_FALSE_POSITIVES=()
+
+# Arrays for error double-checking (v1.8)
+declare -a PENDING_ERROR_URL_LIST=()
+declare -a PENDING_ERROR_TEXT_LIST=()
+declare -a PENDING_ERROR_PARENT_LIST=()
+declare -a FALSE_POSITIVE_URLS=()
 
 # Global counters
 TOTAL_URLS=0
@@ -111,9 +114,9 @@ CHECK_DURATION=0
 ERRORS_FOUND=false
 YOUTUBE_URLS_CHECKED=0
 YOUTUBE_ERRORS=0
-FORBIDDEN_URLS_FOUND=0
-FORBIDDEN_FALSE_POSITIVES_COUNT=0
-FORBIDDEN_CONFIRMED_COUNT=0
+ERRORS_TO_DOUBLE_CHECK=0
+FALSE_POSITIVES_COUNT=0
+CONFIRMED_ERRORS_COUNT=0
 
 # Language variables - will be set by set_language_texts()
 LANG_SUBJECT=""
@@ -138,8 +141,8 @@ LANG_YOUTUBE_ERRORS=""
 LANG_YOUTUBE_VIDEO_DELETED=""
 LANG_YOUTUBE_VIDEO_PRIVATE=""
 LANG_YOUTUBE_CHECK_FAILED=""
-LANG_FORBIDDEN_DOUBLE_CHECK=""
-LANG_FORBIDDEN_FALSE_POSITIVES=""
+LANG_ERRORS_DOUBLE_CHECKED=""
+LANG_FALSE_POSITIVES_REMOVED=""
 
 #==============================================================================
 # Helper Functions
@@ -230,14 +233,14 @@ Environment:
 
 Prerequisites:
   - linkchecker: The main link checking tool
-  - curl-impersonate: Required for both 403 checking and YouTube validation
+  - curl-impersonate: Required for error verification and YouTube validation
     Download from: https://github.com/lwthiker/curl-impersonate/releases
   - mail: For sending email reports
 
-Features:
+Features (v1.8):
   - Checks all links on website using linkchecker
-  - Double-checks 403 errors with curl-impersonate to eliminate false positives
-  - Uses browser-like TLS fingerprint to bypass WAF/CDN protections
+  - Double-checks ALL errors with curl-impersonate to eliminate false positives
+  - Bypasses WAF/CDN protections that cause timeouts or return error codes
   - Validates YouTube video availability using oEmbed API
   - Sends HTML email report if broken links or unavailable videos found
   - Rate limiting for YouTube API (max $YOUTUBE_OEMBED_MAX_PER_MINUTE requests/minute)
@@ -287,8 +290,8 @@ set_language_texts() {
         LANG_YOUTUBE_VIDEO_DELETED="Video deleted or unavailable"
         LANG_YOUTUBE_VIDEO_PRIVATE="Video is private"
         LANG_YOUTUBE_CHECK_FAILED="Could not check video status"
-        LANG_FORBIDDEN_DOUBLE_CHECK="403 Errors Double-Checked"
-        LANG_FORBIDDEN_FALSE_POSITIVES="False Positives Removed"
+        LANG_ERRORS_DOUBLE_CHECKED="Errors Double-Checked"
+        LANG_FALSE_POSITIVES_REMOVED="False Positives Removed"
     else
         LANG_SUBJECT="Defekte Links auf der Website gefunden"
         LANG_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
@@ -312,8 +315,8 @@ set_language_texts() {
         LANG_YOUTUBE_VIDEO_DELETED="Video gelöscht oder nicht verfügbar"
         LANG_YOUTUBE_VIDEO_PRIVATE="Video ist privat"
         LANG_YOUTUBE_CHECK_FAILED="Videostatus konnte nicht geprüft werden"
-        LANG_FORBIDDEN_DOUBLE_CHECK="403 Fehler doppelt geprüft"
-        LANG_FORBIDDEN_FALSE_POSITIVES="Falsch-Positive entfernt"
+        LANG_ERRORS_DOUBLE_CHECKED="Fehler doppelt geprüft"
+        LANG_FALSE_POSITIVES_REMOVED="Falsch-Positive entfernt"
     fi
 }
 
@@ -383,13 +386,14 @@ check_prerequisites() {
         die "mail command not found"
     fi
     
-    # Check curl-impersonate for both 403 double-checking and YouTube checks
+    # Check curl-impersonate for both error double-checking and YouTube checks
     if [[ ! -x "$CURL_IMPERSONATE_BINARY" ]]; then
         echo "" >&2
         echo "ERROR: curl-impersonate not found or not executable at: $CURL_IMPERSONATE_BINARY" >&2
         echo "" >&2
         echo "curl-impersonate is required for:" >&2
-        echo "  - Accurate 403 error checking (bypasses WAF/CDN protections)" >&2
+        echo "  - Double-checking all errors to eliminate false positives" >&2
+        echo "  - Bypassing WAF/CDN protections that cause timeouts" >&2
         echo "  - YouTube video availability checks" >&2
         echo "" >&2
         echo "To install curl-impersonate:" >&2
@@ -429,7 +433,7 @@ is_url_excluded() {
 }
 
 #==============================================================================
-# 403 Double-Check Functions
+# Error Double-Check Functions
 #==============================================================================
 
 # Function to handle spaces in URL for curl
@@ -440,7 +444,6 @@ fix_spaces_for_curl() {
 }
 
 # Double-check a single URL with curl-impersonate, following redirects
-# Used for both 403 verification and YouTube API calls
 double_check_url_with_curl() {
     local url="$1"
     local fixed_url=$(fix_spaces_for_curl "$url")
@@ -478,28 +481,29 @@ double_check_url_with_curl() {
     echo "$final_status"
 }
 
-# Process all 403 errors with double-checking
-double_check_forbidden_urls() {
-    if [[ ${#FORBIDDEN_URL_LIST[@]} -eq 0 ]]; then
-        debug_message "No 403 errors to double-check"
+# Process all errors with double-checking (NEW in v1.8)
+double_check_all_errors() {
+    if [[ ${#PENDING_ERROR_URL_LIST[@]} -eq 0 ]]; then
+        debug_message "No errors to double-check"
         return
     fi
     
-    log_message "Starting double-check of ${#FORBIDDEN_URL_LIST[@]} URLs with 403 errors using curl-impersonate"
+    log_message "Starting double-check of ALL ${#PENDING_ERROR_URL_LIST[@]} error URLs (including timeouts, 403s, 404s, etc.) using curl-impersonate"
     
-    local confirmed_error_urls=()
-    local confirmed_error_text=()
-    local confirmed_error_parent=()
+    # Reset final error lists
+    ERROR_URL_LIST=()
+    ERROR_TEXT_LIST=()
+    ERROR_PARENT_LIST=()
+    FALSE_POSITIVE_URLS=()
+    FALSE_POSITIVES_COUNT=0
+    CONFIRMED_ERRORS_COUNT=0
     
-    FORBIDDEN_FALSE_POSITIVES=()
-    FORBIDDEN_FALSE_POSITIVES_COUNT=0
-    FORBIDDEN_CONFIRMED_COUNT=0
-    
-    for i in "${!FORBIDDEN_URL_LIST[@]}"; do
-        local url="${FORBIDDEN_URL_LIST[$i]}"
-        local parent="${FORBIDDEN_PARENT_LIST[$i]}"
+    for i in "${!PENDING_ERROR_URL_LIST[@]}"; do
+        local url="${PENDING_ERROR_URL_LIST[$i]}"
+        local original_error="${PENDING_ERROR_TEXT_LIST[$i]}"
+        local parent="${PENDING_ERROR_PARENT_LIST[$i]}"
         
-        debug_message "Double-checking 403 URL with curl-impersonate: $url"
+        debug_message "Double-checking error URL #$((i+1))/${#PENDING_ERROR_URL_LIST[@]} with curl-impersonate: $url (original error: $original_error)"
         
         # Small delay to avoid rate limiting
         sleep "$CURL_RETRY_DELAY"
@@ -510,34 +514,34 @@ double_check_forbidden_urls() {
         if [[ -z "$curl_status" ]]; then
             # Connection failed - keep as error
             debug_message "Curl-impersonate check failed for: $url (connection error)"
-            confirmed_error_urls+=("$url")
-            confirmed_error_text+=("HTTP 403 (confirmed: connection failed)")
-            confirmed_error_parent+=("$parent")
-            ((FORBIDDEN_CONFIRMED_COUNT++))
+            ERROR_URL_LIST+=("$url")
+            ERROR_TEXT_LIST+=("$original_error (verified: connection failed)")
+            ERROR_PARENT_LIST+=("$parent")
+            ((CONFIRMED_ERRORS_COUNT++))
         elif [[ "$curl_status" -ge 200 && "$curl_status" -lt 300 ]]; then
             # False positive - URL is actually OK
             debug_message "False positive detected: $url (curl-impersonate returned $curl_status)"
-            FORBIDDEN_FALSE_POSITIVES+=("$url")
-            ((FORBIDDEN_FALSE_POSITIVES_COUNT++))
+            FALSE_POSITIVE_URLS+=("$url")
+            ((FALSE_POSITIVES_COUNT++))
         else
-            # Confirmed error (could be 403 or another error after redirects)
+            # Confirmed error
             debug_message "Confirmed error for: $url (curl-impersonate returned $curl_status)"
-            confirmed_error_urls+=("$url")
-            if [[ "$curl_status" -eq 403 ]]; then
-                confirmed_error_text+=("HTTP 403 (confirmed)")
+            ERROR_URL_LIST+=("$url")
+            # Include both original and verified status if different
+            if [[ "$original_error" =~ ^HTTP\ ([0-9]+) ]]; then
+                local original_code="${BASH_REMATCH[1]}"
+                if [[ "$original_code" != "$curl_status" ]]; then
+                    ERROR_TEXT_LIST+=("$original_error → HTTP $curl_status (verified)")
+                else
+                    ERROR_TEXT_LIST+=("HTTP $curl_status (verified)")
+                fi
             else
-                confirmed_error_text+=("HTTP 403 (final status: $curl_status)")
+                # For timeout or other errors
+                ERROR_TEXT_LIST+=("$original_error → HTTP $curl_status (verified)")
             fi
-            confirmed_error_parent+=("$parent")
-            ((FORBIDDEN_CONFIRMED_COUNT++))
+            ERROR_PARENT_LIST+=("$parent")
+            ((CONFIRMED_ERRORS_COUNT++))
         fi
-    done
-    
-    # Add confirmed 403 errors back to the main error lists
-    for i in "${!confirmed_error_urls[@]}"; do
-        ERROR_URL_LIST+=("${confirmed_error_urls[$i]}")
-        ERROR_TEXT_LIST+=("${confirmed_error_text[$i]}")
-        ERROR_PARENT_LIST+=("${confirmed_error_parent[$i]}")
     done
     
     # Update error count
@@ -546,9 +550,11 @@ double_check_forbidden_urls() {
     # Update global error flag
     if [[ ${#ERROR_URL_LIST[@]} -gt 0 ]]; then
         ERRORS_FOUND=true
+    else
+        ERRORS_FOUND=false
     fi
     
-    log_message "403 double-check complete: $FORBIDDEN_CONFIRMED_COUNT confirmed, $FORBIDDEN_FALSE_POSITIVES_COUNT false positives (bypassed WAF/CDN blocks)"
+    log_message "Error double-check complete: $CONFIRMED_ERRORS_COUNT confirmed, $FALSE_POSITIVES_COUNT false positives removed (WAF/CDN blocks bypassed)"
 }
 
 #==============================================================================
@@ -714,7 +720,7 @@ process_youtube_urls() {
 # Linkchecker Functions
 #==============================================================================
 
-# Parse linkchecker output
+# Parse linkchecker output (MODIFIED for v1.8)
 parse_linkchecker_output() {
     local file="$1"
     local in_csv=false
@@ -723,17 +729,13 @@ parse_linkchecker_output() {
 
     # Reset counters and arrays
     TOTAL_URLS=0
-    ERROR_URLS=0
     EXCLUDED_URLS=0
-    ERRORS_FOUND=false
-    ERROR_URL_LIST=()
-    ERROR_TEXT_LIST=()
-    ERROR_PARENT_LIST=()
     ALL_URLS_LIST=()
     ALL_URLS_PARENT=()
-    FORBIDDEN_URL_LIST=()
-    FORBIDDEN_PARENT_LIST=()
-    FORBIDDEN_URLS_FOUND=0
+    PENDING_ERROR_URL_LIST=()
+    PENDING_ERROR_TEXT_LIST=()
+    PENDING_ERROR_PARENT_LIST=()
+    ERRORS_TO_DOUBLE_CHECK=0
 
     while IFS= read -r line; do
         # Skip empty lines and comments
@@ -770,43 +772,41 @@ parse_linkchecker_output() {
 
             ((TOTAL_URLS++))
 
-            # Check for errors
+            # Check for ANY kind of error - ALL will be double-checked in v1.8
             local error_text=""
-            local is_403=false
             
-            if [[ "$result" =~ ^403 ]]; then
-                # Store 403 errors separately for double-checking
-                FORBIDDEN_URL_LIST+=("$url")
-                FORBIDDEN_PARENT_LIST+=("$parent")
-                ((FORBIDDEN_URLS_FOUND++))
-                debug_message "403 error found, will double-check: $url"
-            elif [[ "$result" =~ ^[0-9]+$ ]] && [[ "$result" -ge 400 ]]; then
+            # Check for HTTP error codes
+            if [[ "$result" =~ ^[0-9]+$ ]] && [[ "$result" -ge 400 ]]; then
                 error_text="HTTP $result"
             elif [[ "$result" =~ ^[0-9]+ ]]; then
                 local code="${result%% *}"
-                [[ "$code" -ge 400 ]] && error_text="$result"
+                if [[ "$code" -ge 400 ]]; then
+                    error_text="$result"
+                fi
+            # Check for timeout errors (including ReadTimeout, ConnectTimeout, etc.)
             elif [[ "$result" =~ [Tt]imeout ]]; then
                 error_text="${LANG_TIMEOUT_ERROR:-Request timeout}"
+                debug_message "Timeout detected for $url: $result"
+            # Check for other errors
             elif [[ "$result" =~ [Ee]rror|[Ff]ailed ]]; then
                 error_text="$result"
             fi
 
-            # Only add non-403 errors directly (403s will be double-checked)
+            # Store ALL errors for double-checking (this is the key change in v1.8)
             if [[ -n "$error_text" ]]; then
-                ERROR_URL_LIST+=("$url")
-                ERROR_TEXT_LIST+=("$error_text")
-                ERROR_PARENT_LIST+=("$parent")
-                ((ERROR_URLS++))
-                ERRORS_FOUND=true
-                debug_message "Error found: $url -> $error_text"
+                PENDING_ERROR_URL_LIST+=("$url")
+                PENDING_ERROR_TEXT_LIST+=("$error_text")
+                PENDING_ERROR_PARENT_LIST+=("$parent")
+                ((ERRORS_TO_DOUBLE_CHECK++))
+                debug_message "Error found, will double-check: $url -> $error_text"
             fi
         fi
     done < "$file"
 
-    log_message "Linkchecker initial results: $TOTAL_URLS checked, $ERROR_URLS errors, $FORBIDDEN_URLS_FOUND 403s to double-check, $EXCLUDED_URLS excluded"
+    log_message "Linkchecker initial results: $TOTAL_URLS checked, $ERRORS_TO_DOUBLE_CHECK errors found (all will be double-checked), $EXCLUDED_URLS excluded"
 }
 
-# Run linkchecker
+# Run linkchecker (MODIFIED for v1.8)
 run_linkchecker() {
     local base_url="$1"
     local temp_output="/tmp/linkchecker_$$_$(date +%s).txt"
@@ -838,11 +838,11 @@ run_linkchecker() {
     CHECK_DURATION=$(($(date +%s) - start_time))
     debug_message "Linkchecker completed in ${CHECK_DURATION}s"
 
-    # Parse output
+    # Parse output (collects all errors into PENDING lists)
     parse_linkchecker_output "$temp_output"
     
-    # Double-check 403 errors
-    double_check_forbidden_urls
+    # Double-check ALL errors with curl-impersonate (v1.8 change)
+    double_check_all_errors
 }
 
 #==============================================================================
@@ -952,11 +952,11 @@ EOF
             <tr><th>$LANG_ERROR_URLS</th><td class="error-count">$ERROR_URLS</td></tr>
 EOF
 
-    # Add 403 double-check stats if any were checked
-    if (( FORBIDDEN_URLS_FOUND > 0 )); then
+    # Add error double-check stats if any were checked
+    if (( ERRORS_TO_DOUBLE_CHECK > 0 )); then
         cat >> "$output_file" << EOF
-            <tr><th>$LANG_FORBIDDEN_DOUBLE_CHECK</th><td>$FORBIDDEN_URLS_FOUND</td></tr>
-            <tr><th>$LANG_FORBIDDEN_FALSE_POSITIVES</th><td class="false-positive-count">$FORBIDDEN_FALSE_POSITIVES_COUNT</td></tr>
+            <tr><th>$LANG_ERRORS_DOUBLE_CHECKED</th><td>$ERRORS_TO_DOUBLE_CHECK</td></tr>
+            <tr><th>$LANG_FALSE_POSITIVES_REMOVED</th><td class="false-positive-count">$FALSE_POSITIVES_COUNT</td></tr>
 EOF
     fi
 
@@ -1149,7 +1149,7 @@ main() {
     log_message "Parameters: CMS=$cms_login_url, Language=$language, Recipients=$mailto"
     log_message "Dynamic excludes: ${#DYNAMIC_EXCLUDES[@]}"
 
-    # Run linkchecker (includes 403 double-checking)
+    # Run linkchecker (includes double-checking ALL errors)
     run_linkchecker "$base_url" || exit 1
 
     # Process YouTube URLs
@@ -1158,8 +1158,8 @@ main() {
     # Check results
     if [[ "$ERRORS_FOUND" != "true" ]]; then
         log_message "No errors found - no email will be sent"
-        if (( FORBIDDEN_FALSE_POSITIVES_COUNT > 0 )); then
-            log_message "Note: Removed $FORBIDDEN_FALSE_POSITIVES_COUNT false positive 403 errors"
+        if (( FALSE_POSITIVES_COUNT > 0 )); then
+            log_message "Note: Removed $FALSE_POSITIVES_COUNT false positive errors (WAF/CDN blocks)"
         fi
         log_message "LINKCHECKER RUN COMPLETED - $(date)"
         log_message "======================================================"
