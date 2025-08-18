@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #==============================================================================
-# YOURCOMPANY Website Linkchecker Script - Comprehensive Website Health Monitor
+# LEXO Website Linkchecker Script - Comprehensive Website Health Monitor
 #==============================================================================
 #
 # OVERVIEW
@@ -135,7 +135,7 @@
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.0"
+SCRIPT_VERSION="2.1"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -234,6 +234,7 @@ CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-./curl/curl-impersonate-chro
 # Limits
 MAX_DEPTH="${MAX_DEPTH:--1}"
 MAX_URLS="${MAX_URLS:--1}"
+MAX_URL_LENGTH="${MAX_URL_LENGTH:-2000}"  # Maximum URL length to process
 
 # YouTube
 YOUTUBE_DOMAINS='youtube\.com|youtu\.be|youtube-nocookie\.com|yt\.be'
@@ -540,8 +541,46 @@ is_url_in_scope() {
     [[ "$url_domain" == "$base_domain" ]]
 }
 
+is_url_valid() {
+    local url="$1"
+    
+    # Check URL length
+    if [[ ${#url} -gt $MAX_URL_LENGTH ]]; then
+        debug_message "URL too long (${#url} chars): ${url:0:100}..."
+        return 1
+    fi
+    
+    # Check for obviously malformed URLs
+    # Detect repeating patterns like /like/like/like/
+    if echo "$url" | grep -qE '(/[^/]+/)\1{5,}'; then
+        debug_message "URL has repeating pattern: ${url:0:100}..."
+        return 1
+    fi
+    
+    # Check specifically for multiple /like/ patterns (Facebook widget issue)
+    if echo "$url" | grep -qE '(/like/){3,}'; then
+        debug_message "URL has multiple /like/ patterns: ${url:0:100}..."
+        return 1
+    fi
+    
+    # Check for social media action words being treated as URLs
+    if echo "$url" | grep -qE '/(like|share|tweet|follow|subscribe)(/|$)'; then
+        debug_message "URL contains social media action word as path: ${url:0:100}..."
+        return 1
+    fi
+    
+    # Check for excessive query parameters (possible loop)
+    local param_count=$(echo "$url" | grep -o '&' | wc -l)
+    if [[ $param_count -gt 50 ]]; then
+        debug_message "URL has too many parameters ($param_count): ${url:0:100}..."
+        return 1
+    fi
+    
+    return 0
+}
+
 #==============================================================================
-# Optimized HTML Parsing - Single Pass
+# Optimized HTML Parsing - Single Pass with Social Media Widget Protection
 #==============================================================================
 
 extract_urls_from_html_optimized() {
@@ -623,9 +662,23 @@ extract_urls_from_html_optimized() {
     
     {
         # Extract other URL patterns (non-link tags)
-        while (match($0, /(src|action|data-href|poster)=["\047]([^"\047]*)["\047]/, arr)) {
+        # Note: Only extract from specific attributes that actually contain URLs
+        while (match($0, /(src|action|poster)=["\047]([^"\047]*)["\047]/, arr)) {
             url = arr[2]
             if (url && url !~ /^(#|mailto:|tel:|javascript:|data:)/) {
+                normalized = normalize(url, base)
+                if (normalized != "" && normalized ~ /^https?:\/\//) {
+                    print normalized
+                }
+            }
+            $0 = substr($0, RSTART + RLENGTH)
+        }
+        
+        # Extract data-href separately with stricter validation
+        while (match($0, /data-href=["\047]([^"\047]*)["\047]/, arr)) {
+            url = arr[1]
+            # Only process if it looks like a URL (starts with / or http)
+            if (url ~ /^(\/|https?:\/\/)/) {
                 normalized = normalize(url, base)
                 if (normalized != "" && normalized ~ /^https?:\/\//) {
                     print normalized
@@ -661,7 +714,12 @@ extract_urls_from_html_optimized() {
                 }
             }
         }
-    }' | sort -u
+    }' | sort -u | while IFS= read -r url; do
+        # Post-process to filter out bad URLs
+        if is_url_valid "$url"; then
+            echo "$url"
+        fi
+    done
 }
 
 extract_urls_from_css() {
@@ -672,7 +730,7 @@ extract_urls_from_css() {
     echo "$css_content" | grep -oE 'url\([^)]+\)' | sed 's/url(//; s/)//; s/["'"'"']//g' | while IFS= read -r url; do
         [[ -z "$url" || "$url" =~ ^data: ]] && continue
         local normalized=$(normalize_url "$url" "$css_url")
-        [[ -n "$normalized" ]] && [[ "$normalized" =~ ^https?:// ]] && echo "$normalized"
+        [[ -n "$normalized" ]] && [[ "$normalized" =~ ^https?:// ]] && is_url_valid "$normalized" && echo "$normalized"
     done
 }
 
@@ -727,7 +785,7 @@ http_request_pooled() {
         --parallel-max "$CONNECTION_CACHE_SIZE" \
         $([ "$method" == "HEAD" ] && echo "--head") \
         -w "\n__STATUS_CODE__%{http_code}" \
-        "$url" 2>/dev/null | tr -d '\0') || echo "__STATUS_CODE__000"
+        -- "$url" 2>/dev/null | tr -d '\0') || echo "__STATUS_CODE__000"
     
     rm -f "$config_file"
     
@@ -748,6 +806,12 @@ check_url_worker() {
     local parent="$2"
     local base_url="$3"
     
+    # First validate URL
+    if ! is_url_valid "$url"; then
+        echo "SKIP|$url|Invalid URL|$parent"
+        return
+    fi
+    
     # Determine if URL is external (different domain)
     local is_external=false
     
@@ -760,11 +824,13 @@ check_url_worker() {
         [[ "$url_domain" != "$base_domain" ]] && is_external=true
     fi
     
-    # Use GET for external URLs, configured method for internal
-    local method="$CHECK_METHOD"
+    # Determine method: GET for external, HEAD first for internal
+    local method="HEAD"
     if [[ "$is_external" == "true" ]]; then
         method="GET"
         debug_message "External URL detected, using GET method for $url"
+    else
+        debug_message "Internal URL detected, trying HEAD first for $url"
     fi
     
     # Make the request
@@ -772,15 +838,16 @@ check_url_worker() {
     local status=$(echo "$response" | head -n1)
     local body=""
     
-    # If we get 403, 405, or 501 with HEAD request, try GET as fallback
-    if [[ "$method" == "HEAD" ]] && [[ "$status" =~ ^(403|405|501)$ ]]; then
-        debug_message "HEAD request failed with $status for $url, trying GET"
+    # For internal URLs: if HEAD fails with 4xx or 5xx, retry with GET
+    if [[ "$is_external" == "false" ]] && [[ "$method" == "HEAD" ]] && [[ -n "$status" ]] && [[ "$status" -ge 400 ]]; then
+        debug_message "HEAD request returned $status for $url, retrying with GET"
         response=$(http_request_pooled "$url" "GET" 2>/dev/null)
         status=$(echo "$response" | head -n1)
+        method="GET"
     fi
     
-    # Get body for error analysis
-    if [[ "$method" == "GET" ]] || [[ "$status" =~ ^(403|405|501)$ ]]; then
+    # Get body if we used GET or need it for error analysis
+    if [[ "$method" == "GET" ]]; then
         body=$(echo "$response" | tail -n +2)
     fi
     
@@ -807,16 +874,23 @@ check_url_worker() {
     fi
 }
 
-export -f check_url_worker http_request_pooled create_curl_config normalize_url debug_message
-export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN EXCLUDE_PROTECTED_FROM_REPORT LANG_PROTECTION_DETECTED
+export -f check_url_worker http_request_pooled create_curl_config normalize_url debug_message is_url_valid
+export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN EXCLUDE_PROTECTED_FROM_REPORT LANG_PROTECTION_DETECTED MAX_URL_LENGTH
 
 check_urls_parallel() {
     local base_url="$1"
     local -a urls_to_check=()
     local -A seen_urls=()
     
-    # Build list of URLs to check (with deduplication)
+    # Build list of URLs to check (with deduplication and validation)
     for url in "${!ALL_DISCOVERED[@]}"; do
+        # Validate URL before checking
+        if ! is_url_valid "$url"; then
+            debug_message "Skipping invalid URL: ${url:0:100}..."
+            ((EXCLUDED_URLS++))
+            continue
+        fi
+        
         if [[ -z "${seen_urls[$url]:-}" ]] && ! is_url_excluded "$url"; then
             urls_to_check+=("$url")
             seen_urls["$url"]=1
@@ -888,6 +962,9 @@ check_urls_parallel() {
                 ;;
             OK|CACHED)
                 URL_STATUS["$url"]="$status"
+                ;;
+            SKIP)
+                debug_message "Skipped invalid URL: ${url:0:100}..."
                 ;;
         esac
         
@@ -972,6 +1049,13 @@ crawl_website() {
             while IFS= read -r new_url; do
                 [[ -z "$new_url" ]] && continue
                 
+                # Validate URL before adding
+                if ! is_url_valid "$new_url"; then
+                    debug_message "Skipping invalid discovered URL: ${new_url:0:100}..."
+                    EXCLUDED_URLS=$((EXCLUDED_URLS + 1))
+                    continue
+                fi
+                
                 # Skip if excluded
                 is_url_excluded "$new_url" && { EXCLUDED_URLS=$((EXCLUDED_URLS + 1)); continue; }
                 
@@ -981,10 +1065,11 @@ crawl_website() {
                     URL_PARENTS["$new_url"]="$url"
                     ((discovered_count++))
                     
-                    # Queue for crawling if internal and not visited
+                    # Queue for crawling if internal and not visited - WITH VALIDATION
                     if is_url_in_scope "$new_url" "$base_url" && \
                        ! grep -qF "$new_url" "$visited_file" && \
-                       ! [[ "$new_url" =~ \.js(\?.*)?$ ]]; then
+                       ! [[ "$new_url" =~ \.js(\?.*)?$ ]] && \
+                       is_url_valid "$new_url"; then
                         echo "$new_url|$((depth + 1))|$url" >> "$queue_file"
                     fi
                 fi
@@ -1313,7 +1398,7 @@ send_email() {
 #==============================================================================
 
 main() {
-    debug_message "Starting v$SCRIPT_VERSION (Optimized)"
+    debug_message "Starting v$SCRIPT_VERSION"
     
     parse_arguments "$@"
     
