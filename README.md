@@ -1,150 +1,130 @@
-# Automated website link checker with HTML email reporting
+# LEXO Website Linkchecker v2.0
 
-A robust Bash script that crawls your website, detects broken links, validates YouTube videos, and sends beautifully formatted HTML email reports. Perfect for automated monitoring via CRON jobs.
+A professional website link validation system built in Bash that overcomes modern web protection mechanisms. Features intelligent crawling, parallel processing, and sophisticated HTML email reporting with white-label branding capabilities.
 
-## ✨ Features
+## 🚀 What's New in v2.0
 
-- **Comprehensive Link Checking**: Crawls internal and external links recursively with configurable depth
-- **YouTube Video Validation**: Automatically checks YouTube video availability using oEmbed API
-- **Professional Email Reports**: HTML emails with responsive design and detailed statistics  
-- **Flexible Exclusion System**: REGEX-based URL exclusion patterns with runtime configuration
-- **Enhanced CRON Support**: Silent operation with proper error handling for automated scheduling
-- **Bilingual Support**: German and English report languages
-- **Command-Line Options**: Dynamic exclude patterns, debug mode, and help system
-- **Rate-Limited API Calls**: Respects YouTube API limits with intelligent throttling
-- **Detailed Logging**: Configurable debug levels with comprehensive audit trails
-- **UTF-8 Compatible**: Proper encoding for international content
-- **Mobile-Friendly**: Responsive email templates that work on all devices
+### Revolutionary Protection Bypass Technology
+- **curl-impersonate Integration**: Mimics real Chrome browser behavior to bypass Cloudflare, AWS CloudFront, and other CDN protections
+- **Advanced Fingerprinting**: Uses authentic browser TLS signatures and HTTP/2 patterns
+- **Intelligent Protection Detection**: Automatically identifies and handles protected pages
+
+### Performance & Scalability
+- **Parallel Processing**: Configurable worker pools for concurrent URL checking (up to 20 workers)
+- **Connection Pooling**: Reuses HTTP connections to reduce overhead
+- **Batch Processing**: Optimized resource utilization with configurable batch sizes
+- **Smart Caching**: O(1) lookup performance with associative arrays
+- **Single-Pass Parsing**: Highly optimized HTML/CSS parsing
+
+### Enterprise Features
+- **White-Label Branding**: Fully customizable logos, colors, and organizational branding
+- **Multi-Language Support**: Professional German and English report templates
+- **Comprehensive Analytics**: Detailed statistics, performance metrics, and success rates
+- **Scalability Controls**: Configurable limits for depth, URL count, and resource consumption
+
+## ✨ Core Features
+
+- **Intelligent Website Crawling**: Discovers links from HTML, CSS, and various media formats
+- **Advanced Link Validation**: Parallel HTTP requests with optimized HEAD/GET fallback
+- **YouTube Video Validation**: Checks video availability using oEmbed API with rate limiting
+- **Professional Email Reports**: Responsive HTML emails with detailed analytics and branding
+- **Protection-Aware Checking**: Identifies and properly handles CDN-protected websites
+- **Flexible Configuration**: Extensive command-line options and environment variables
+- **Enterprise Logging**: Comprehensive audit trails with timestamp and domain context
+- **Integration Ready**: Designed for cron jobs, CI/CD pipelines, and monitoring systems
 
 ## 📋 Prerequisites
 
-### Required Packages
+### Required Software
+
+**curl-impersonate-chrome** (Essential for protection bypass):
+```bash
+# Download and install curl-impersonate
+wget https://github.com/lwthiker/curl-impersonate/releases/latest/download/curl-impersonate-chrome-linux-x86_64.tar.gz
+tar -xzf curl-impersonate-chrome-linux-x86_64.tar.gz
+sudo cp curl-impersonate-chrome /usr/local/bin/
+```
+
+**System Tools**:
 ```bash
 # Ubuntu/Debian
-sudo apt-get install linkchecker mailutils curl
+sudo apt-get install sendmail xargs awk grep
 
 # CentOS/RHEL
-sudo yum install linkchecker mailx curl
+sudo yum install sendmail xargs gawk grep
 
 # macOS (with Homebrew)
-brew install linkchecker curl
+brew install gnu-awk grep
 ```
 
 ### System Requirements
-- **Bash 4.0+** (for array support)
-- **linkchecker** (Python-based link checking tool)
-- **curl** (for YouTube video validation)
-- **sendmail** (for sending emails - preferred method)
-- **Configured SMTP MTA** (see Email Setup below)
+- **Bash 4.0+** (for associative arrays)
+- **curl-impersonate-chrome** (for protection bypass)
+- **sendmail** (for email delivery)
+- **Standard Unix tools**: awk, grep, xargs, sort, head, tail
 
-## 📧 Email Setup
-
-The script uses `sendmail` directly for reliable email delivery with proper header control. This approach avoids duplicate headers and provides better compatibility across different systems.
-
-### Postfix Configuration (Recommended)
-
-The script is configured to use `sendmail` directly, which provides the most reliable email delivery. Install and configure Postfix (which provides the `sendmail` command):
-
-```bash
-# Install Postfix
-sudo apt-get install postfix
-
-# Choose "Internet Site" during installation
-```
-
-#### Configure Postfix
-
-Create a basic `/etc/postfix/main.cf` configuration:
-```bash
-smtp_sasl_auth_enable = yes
-smtp_sasl_password_maps = hash:/etc/postfix/saslpass
-smtp_sasl_security_options = noanonymous
-relayhost = your.smtpgateway.tld:587
-myhostname = myhost.domain.tld
-mydomain = domain.tld
-smtp_use_tls = yes
-```
-
-#### Set Up SMTP Authentication
-
-Create `/etc/postfix/saslpass` with your SMTP credentials:
-```bash
-your.smtpgateway.tld		yourusername@example.tld:yourpassword
-```
-
-Apply the configuration:
-```bash
-# Initialize the password database
-sudo postmap /etc/postfix/saslpass
-
-# Secure the password files
-sudo chmod 600 /etc/postfix/saslpass /etc/postfix/saslpass.db
-
-# Restart Postfix
-sudo systemctl restart postfix
-```
-
-### Email Configuration in Script
-
-The script uses `sendmail` directly with proper header formatting to avoid duplicate `From:` headers and ensure correct `Return-Path` settings. The email configuration variables in the script are:
-
-```bash
-# Email configuration
-MAIL_SENDER="youremail@example.tld"
-MAIL_SENDER_NAME="Your Name | Web Support"
-```
-
-### Test Email Configuration
-
-Test your email setup using sendmail:
-```bash
-# Test sendmail directly
-echo -e "From: test@example.tld\nSubject: Test Subject\nTo: youremail@example.tld\n\nTest message" | sendmail -f test@example.tld youremail@example.tld
-
-# Check mail queue
-mailq
-
-# Check mail logs
-sudo tail -f /var/log/mail.log
-```
-
-## 🚀 Quick Start
+## ⚙️ Installation & Setup
 
 ### 1. Download the Script
 ```bash
-wget https://raw.githubusercontent.com/lexo-ch/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/refs/heads/master/linkchecker.sh
+wget https://raw.githubusercontent.com/lexo-ch/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/main/linkchecker.sh
 chmod +x linkchecker.sh
 ```
 
-### 2. Configure Email Settings
-Edit the script and modify these variables:
+### 2. Install curl-impersonate
 ```bash
-# Email configuration
-MAIL_SENDER="youremail@example.tld"
-MAIL_SENDER_NAME="Your Name | Web Support"
+# Create curl directory in script location
+mkdir -p curl
+cd curl
+
+# Download curl-impersonate
+wget https://github.com/lwthiker/curl-impersonate/releases/latest/download/curl-impersonate-chrome-linux-x86_64.tar.gz
+tar -xzf curl-impersonate-chrome-linux-x86_64.tar.gz
+
+# Make executable
+chmod +x curl-impersonate-chrome
+cd ..
 ```
 
-Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) section).
-
-### 3. Basic Usage
+### 3. Configure White-Label Branding
+Edit the script's branding section:
 ```bash
-./linkchecker.sh https://example.com - en admin@example.com
+# White-label configuration
+SCRIPT_NAME="Your Company Linkchecker"
+LOGO_URL="https://yourcompany.com/logo.png"
+LOGO_ALT="Your Company Logo"
+MAIL_SENDER="websupport@yourcompany.com"
+MAIL_SENDER_NAME="Your Company | Web Support"
 ```
 
-## 📖 Detailed Usage
+### 4. Set Up Email (SMTP)
+```bash
+# Install and configure Postfix
+sudo apt-get install postfix
+
+# Configure SMTP relay in /etc/postfix/main.cf
+relayhost = your.smtp.server:587
+smtp_sasl_auth_enable = yes
+smtp_sasl_password_maps = hash:/etc/postfix/saslpass
+smtp_use_tls = yes
+```
+
+### 5. Create Log Directory
+```bash
+# Create log file with proper permissions
+sudo touch /var/log/linkchecker.log
+sudo chmod 666 /var/log/linkchecker.log
+
+# Or use custom location
+export LOG_FILE="/path/to/your/linkchecker.log"
+```
+
+## 🚀 Usage
 
 ### Command Syntax
 ```bash
 ./linkchecker.sh [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
 ```
-
-### Options (New since v1.4)
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--exclude=REGEX` | Add exclude pattern (can be used multiple times) | `--exclude='\.pdf$'` |
-| `--debug` | Enable debug output | `--debug` |
-| `-h, --help` | Show help message | `-h` |
 
 ### Parameters
 
@@ -153,266 +133,385 @@ Also ensure your SMTP MTA is configured (see [Email Setup](#-email-setup) sectio
 | `base_url` | Website URL to check | `https://example.com` |
 | `cms_login_url` | CMS login URL (use `-` if none) | `https://example.com/admin` or `-` |
 | `language` | Report language (`de` or `en`) | `de` |
-| `mailto` | Email recipients (comma-separated) | `admin@example.com,web@example.com` |
+| `mailto` | Email recipients (comma-separated) | `admin@example.com,team@example.com` |
 
-### Environment Variables (New since v1.4)
+### Command-Line Options
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--exclude=REGEX` | Add URL exclusion pattern | - | `--exclude='\.pdf$'` |
+| `--max-depth=N` | Maximum crawl depth | Unlimited | `--max-depth=3` |
+| `--max-urls=N` | Maximum URLs to check | Unlimited | `--max-urls=1000` |
+| `--parallel=N` | Number of parallel workers | 20 | `--parallel=10` |
+| `--batch-size=N` | URLs per processing batch | 50 | `--batch-size=25` |
+| `--debug` | Enable debug output | false | `--debug` |
+| `-h, --help` | Show help message | - | `-h` |
+
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEBUG` | Enable debug output | `false` |
-| `LOG_FILE` | Set log file location | `/var/log/linkchecker.log` |
+| `DEBUG` | Enable debug mode | `false` |
+| `LOG_FILE` | Log file location | `/var/log/linkchecker.log` |
+| `PARALLEL_WORKERS` | Number of workers | `20` |
+| `BATCH_SIZE` | Batch processing size | `50` |
+| `MAX_DEPTH` | Crawl depth limit | `-1` (unlimited) |
+| `MAX_URLS` | URL check limit | `-1` (unlimited) |
+| `EXCLUDE_PROTECTED_FROM_REPORT` | Hide protected pages from reports | `false` |
 
-### Examples
+## 📖 Usage Examples
 
-**Basic website check:**
+### Basic Website Check
 ```bash
 ./linkchecker.sh https://example.com - en webmaster@example.com
 ```
 
-**WordPress site with admin panel:**
+### WordPress Site with Admin Panel
 ```bash
 ./linkchecker.sh https://myblog.com https://myblog.com/wp-admin de admin@myblog.com
 ```
 
-**With custom exclude patterns:**
+### Performance-Optimized Check
 ```bash
-./linkchecker.sh --exclude='\.pdf$' --exclude='/api/' https://example.com - en admin@example.com
+./linkchecker.sh --parallel=30 --batch-size=100 --max-depth=5 https://example.com - en admin@example.com
 ```
 
-**Debug mode with custom log file:**
+### With Custom Exclusions
 ```bash
-DEBUG=true LOG_FILE=/tmp/linkcheck.log ./linkchecker.sh https://example.com - en admin@example.com
+./linkchecker.sh \
+  --exclude='\.pdf$' \
+  --exclude='/api/' \
+  --exclude='\/wp-admin\/' \
+  https://example.com - en admin@example.com
 ```
 
-**Multiple recipients:**
+### Debug Mode with Custom Settings
 ```bash
-./linkchecker.sh https://company.com https://company.com/admin en "dev@company.com,manager@company.com"
+DEBUG=true PARALLEL_WORKERS=10 ./linkchecker.sh --debug https://example.com - en admin@example.com
 ```
 
-## ⚙️ Configuration
+### Enterprise Configuration
+```bash
+./linkchecker.sh \
+  --parallel=20 \
+  --batch-size=50 \
+  --max-urls=5000 \
+  --exclude='\.pdf$' \
+  --exclude='/downloads/' \
+  https://company.com https://company.com/cms en "dev@company.com,manager@company.com"
+```
+
+## 🎛️ Advanced Configuration
 
 ### URL Exclusion Patterns
-Add REGEX patterns to exclude specific URLs from checking:
-
+Customize exclusion patterns in the script:
 ```bash
 EXCLUDES=(
-    "\/xmlrpc\.php\b"           # Exclude xmlrpc.php files
-    "\/wp-admin\/"              # Exclude wp-admin paths  
-    "\.pdf$"                    # Exclude PDF files
-    "\/api\/"                   # Exclude API endpoints
-    "\?.*utm_"                  # Exclude URLs with UTM parameters
+    "\/xmlrpc\.php"           # WordPress XML-RPC
+    "\/wp-json\/"             # WordPress REST API
+    "\/feed\/"                # RSS feeds
+    "\?p=[0-9]+"             # WordPress post IDs
+    "\.pdf$"                  # PDF files
+    "\/api\/"                 # API endpoints
+    "\/admin\/"               # Admin areas
 )
 ```
 
-### YouTube Video Checking (New since v1.4)
-The script automatically detects and validates YouTube videos:
-- **Supported domains**: youtube.com, youtube-nocookie.com, youtu.be, yt.be, and country-specific variants
-- **Rate limiting**: Max 30 requests per minute to respect API limits
-- **Timeout**: 10 seconds per video check
-- **Detection**: Identifies deleted, private, and unavailable videos
-
-### LinkChecker Settings (Enhanced since v1.4)
-Configurable parameters via `LINKCHECKER_PARAMS`:
+### Performance Tuning
 ```bash
-LINKCHECKER_PARAMS="--recursion-level=-1 --timeout=30 --threads=30"
+# High-performance configuration
+export PARALLEL_WORKERS=30
+export BATCH_SIZE=100
+export CONNECTION_CACHE_SIZE=10000
+
+# Conservative configuration for slower servers
+export PARALLEL_WORKERS=5
+export BATCH_SIZE=20
+export REQUEST_DELAY=1
 ```
 
-Default settings:
-- `--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36..."`
-- `--check-extern` (check external links)
-- `--recursion-level=-1` (unlimited depth)
-- `--timeout=30` (30 second timeout)
-- `--threads=30` (30 concurrent threads)
-
-### Debug Mode
-Enable detailed logging for troubleshooting:
+### Protection Detection Settings
 ```bash
-DEBUG=true  # Set to false for production
+# Exclude protected pages from error reports
+export EXCLUDE_PROTECTED_FROM_REPORT=true
+
+# Custom curl-impersonate binary location
+export CURL_IMPERSONATE_BINARY="/usr/local/bin/curl-impersonate-chrome"
 ```
 
-## 🕐 CRON Automation (Enhanced since v1.4)
+## 📧 Email Reports
 
-The script is optimized for CRON with silent operation - only errors appear on stderr.
+### Report Features
+- **Executive Summary**: Duration, URLs checked, success rate, error counts
+- **YouTube Analytics**: Video availability statistics
+- **Detailed Error Tables**: Clickable links with error descriptions and source pages
+- **Protection Detection**: Special handling for CDN-protected pages
+- **CSS Error Highlighting**: Visual distinction for CSS-related errors
+- **Mobile Responsive**: Professional design optimized for all devices
+- **White-Label Branding**: Customizable logos and company information
 
-### Daily Check at 2 AM
+### Language Customization
+Modify language templates in the script:
+```bash
+# German templates
+LANG_DE_SUBJECT="Defekte Links auf der Website gefunden"
+LANG_DE_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
+
+# English templates  
+LANG_EN_SUBJECT="Broken Links Found on Website"
+LANG_EN_INTRO_TITLE="Broken Links Discovered on Your Website"
+```
+
+### Report Sections
+1. **Header**: Company logo and title
+2. **Introduction**: Website overview with actionable guidance
+3. **CMS Access**: Direct login link (if provided)
+4. **Statistics Table**: Comprehensive metrics and performance data
+5. **Error Details**: Sortable table with broken links and sources
+6. **Protection Info**: Explanation of CDN protection detection
+7. **Footer**: Branding and generation timestamp
+
+## 🕐 Automated Monitoring
+
+### CRON Examples
+
+**Daily comprehensive check:**
 ```bash
 0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com
 ```
 
-### Weekly Check with Custom Log File
+**Weekly deep scan:**
 ```bash
-0 3 * * 0 LOG_FILE=/var/log/weekly-linkcheck.log /path/to/linkchecker.sh https://example.com - de admin@example.com
+0 3 * * 0 /path/to/linkchecker.sh --parallel=30 --max-depth=10 https://example.com - de admin@example.com
 ```
 
-### Multiple Sites with Exclude Patterns
+**Multiple sites with different configurations:**
 ```bash
-# Check multiple websites with different configurations
-0 2 * * * /path/to/linkchecker.sh --exclude='\.pdf$' https://site1.com - en admin@site1.com
-0 3 * * * /path/to/linkchecker.sh --exclude='/wp-admin/' https://site2.com - en admin@site2.com
+# E-commerce site (exclude shopping cart)
+0 2 * * * /path/to/linkchecker.sh --exclude='/cart/' --exclude='/checkout/' https://shop.com - en shop@company.com
+
+# Blog site (exclude admin and feeds)
+0 3 * * * /path/to/linkchecker.sh --exclude='/wp-admin/' --exclude='/feed/' https://blog.com - en blog@company.com
+
+# Corporate site (comprehensive check)
+0 4 * * * /path/to/linkchecker.sh --parallel=25 --max-urls=2000 https://corp.com - en corp@company.com
 ```
 
-### CRON Error Handling
+**Error handling and notifications:**
 ```bash
-# Example with error notification
-0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com 2>&1 | mail -s "Linkchecker Error" admin@example.com
+# With error logging
+0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com 2>> /var/log/linkchecker-errors.log
+
+# With failure notification
+0 2 * * * /path/to/linkchecker.sh https://example.com - en admin@example.com || echo "Linkchecker failed" | mail -s "Linkchecker Error" admin@example.com
 ```
 
-## 📧 Email Report Features (Enhanced since v1.4)
+## 🔧 Why curl-impersonate?
 
-### Report Contents
-- **Executive Summary**: Check duration, total URLs, error count, success rate
-- **YouTube Statistics**: Video checks performed and errors found
-- **Detailed Error Table**: Broken URLs with error types and source pages
-- **YouTube Error Section**: Separate section for video availability issues
-- **CMS Login Link**: Direct link to content management system (if provided)
-- **Professional Styling**: Modern responsive design with improved mobile support
-- **Timestamp**: Automatic generation timestamp in footer
+Modern websites use sophisticated protection mechanisms that block traditional automated tools:
 
-### YouTube Error Types
-- **Video deleted or unavailable**: HTTP 404 or similar
-- **Video is private**: Access restricted
-- **Could not check video status**: Network or API timeout
+### Protection Mechanisms
+- **CDN Protection**: Cloudflare, AWS CloudFront actively fingerprint requests
+- **WAF Filtering**: Web Application Firewalls detect bot traffic patterns
+- **Bot Detection**: JavaScript-based systems analyze browser behavior
+- **Rate Limiting**: Aggressive throttling of non-browser agents
 
-### Sample Email Output
-The HTML reports include:
-- ✅ Website overview with clickable URL
-- 📊 Statistics table with key metrics including YouTube checks
-- 🔗 Clickable broken links for easy access
-- 🎥 YouTube video error section (when applicable)
-- 📱 Mobile-responsive design with improved styling
-- 🎨 Professional branding with customizable logo
+### curl-impersonate Advantages
+- **Authentic Browser Mimicking**: Real Chrome TLS fingerprints and HTTP/2 behavior
+- **Advanced Standards Support**: HTTP/2, ALPS, certificate compression
+- **Protection Bypass**: Circumvents most bot detection mechanisms
+- **Reliable Access**: Ensures consistent results across protected websites
 
-## 📁 Log Files (Enhanced since v1.4)
+### Limitations & Advanced Protection Handling
 
-Logs are written to `/var/log/linkchecker.log` (configurable via `LOG_FILE`) with:
-- **Execution timestamps** with clear session markers
-- **Processing statistics** including YouTube checks
-- **Error details** (when DEBUG=true)
-- **Email delivery confirmation**
-- **Rate limiting information** for YouTube API calls
-- **Performance metrics** and timing data
+While curl-impersonate significantly improves access to protected websites, some advanced CDN protections still present challenges:
 
-### Log Rotation
-Recommend setting up logrotate:
+**JavaScript-Based Protection**: Some CDN systems (particularly advanced Cloudflare configurations) require active JavaScript execution and browser interaction that cannot be replicated by curl-impersonate alone. These protections may include:
+- Browser challenge pages requiring JavaScript computation
+- Advanced fingerprinting requiring DOM manipulation
+- Time-based challenges requiring multi-step interactions
+
+**Intelligent Detection & Reporting**: The script automatically detects these advanced protection mechanisms and handles them intelligently:
+- **Smart Recognition**: Identifies challenge pages and JavaScript-required protections
+- **Clear Reporting**: Marks protected URLs with "(page protection detected)" in reports
+- **Contextual Information**: Provides explanatory text about what protection detection means
+- **Optional Exclusion**: Configure `EXCLUDE_PROTECTED_FROM_REPORT=true` to hide protected pages from error reports
+
+This approach ensures that reports focus on actual broken links while providing transparency about protection-related limitations.
+
+### Before vs. After
 ```bash
-# /etc/logrotate.d/linkchecker
-/var/log/linkchecker.log {
-    daily
-    rotate 30
-    compress
-    missingok
-    notifempty
-}
+# Traditional approach (often blocked)
+curl -I https://protected-site.com
+# Result: 403 Forbidden, 503 Service Unavailable
+
+# curl-impersonate approach (works reliably)
+curl-impersonate-chrome -I https://protected-site.com  
+# Result: 200 OK with actual website response (or intelligent protection detection)
 ```
 
 ## 🛠️ Troubleshooting
 
 ### Common Issues
 
-**"linkchecker command not found"**
+**"curl-impersonate not found"**
 ```bash
-# Install linkchecker (default path: /usr/local/bin/linkchecker)
-sudo apt-get install linkchecker
+# Check binary location
+ls -la ./curl/curl-impersonate-chrome
+chmod +x ./curl/curl-impersonate-chrome
 
-# Or install via pip
-pip install linkchecker
+# Or set custom path
+export CURL_IMPERSONATE_BINARY="/usr/local/bin/curl-impersonate-chrome"
 ```
 
-**"curl command not found"** (New since v1.4)
+**"Cannot write to log file"**
 ```bash
-# Install curl for YouTube checks
-sudo apt-get install curl
-```
-
-**"sendmail command not found"**
-```bash
-# Install postfix (provides sendmail command)
-sudo apt-get install postfix
-
-# Or install ssmtp (lightweight alternative)
-sudo apt-get install ssmtp
-```
-
-**"Cannot write to log file"** (Enhanced error handling since v1.4)
-```bash
-# Create log file with proper permissions
+# Fix permissions
 sudo touch /var/log/linkchecker.log
-sudo chmod 664 /var/log/linkchecker.log
+sudo chmod 666 /var/log/linkchecker.log
 
-# Or use custom log file location
-LOG_FILE=/home/user/linkchecker.log ./linkchecker.sh https://example.com - en admin@example.com
+# Or use custom location
+export LOG_FILE="/home/user/linkchecker.log"
 ```
 
-**Emails not sending**
+**High memory usage**
 ```bash
-# Check if postfix is running
-sudo systemctl status postfix
+# Reduce parallel workers and batch size
+./linkchecker.sh --parallel=5 --batch-size=20 https://example.com - en admin@example.com
 
-# Test postfix configuration
-sudo postfix check
-
-# Check mail logs
-sudo tail -f /var/log/mail.log
-
-# Test sendmail directly
-echo -e "From: test@example.tld\nSubject: Test\nTo: youremail@example.tld\n\nTest message" | sendmail -f test@example.tld youremail@example.tld
-
-# Check mail queue
-mailq
+# Set URL limits
+./linkchecker.sh --max-urls=1000 --max-depth=3 https://example.com - en admin@example.com
 ```
 
-**YouTube checks timing out**
+**Protected pages still showing as errors**
 ```bash
-# Check network connectivity to YouTube
-curl -I "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ&format=json"
+# Exclude protected pages from reports
+export EXCLUDE_PROTECTED_FROM_REPORT=true
+./linkchecker.sh https://example.com - en admin@example.com
 
-# Increase timeout in script if needed (modify YOUTUBE_OEMBED_TIMEOUT)
+# Protected pages will be detected but not included in error count
+# Check logs to see detection messages
+tail -f /var/log/linkchecker.log | grep "protection detected"
 ```
 
-### Debug Mode (Enhanced since v1.4)
-Enable debug mode for detailed troubleshooting:
+**Slow performance**
 ```bash
-# Using command line option
+# Optimize for speed
+./linkchecker.sh --parallel=30 --batch-size=100 https://example.com - en admin@example.com
+
+# Check connection cache settings
+export CONNECTION_CACHE_SIZE=10000
+```
+
+### Debug Mode
+Enable comprehensive debugging:
+```bash
+# Command-line debug
 ./linkchecker.sh --debug https://example.com - en admin@example.com
 
-# Using environment variable
+# Environment variable debug
 DEBUG=true ./linkchecker.sh https://example.com - en admin@example.com
 
-# View logs in real-time
+# Real-time log monitoring
 tail -f /var/log/linkchecker.log
 ```
 
-### Version Information
-Check your script version:
+### Performance Monitoring
 ```bash
-./linkchecker.sh --help | grep -i version
+# Monitor system resources during check
+top -p $(pgrep -f linkchecker.sh)
+
+# Check network connections
+netstat -an | grep :80 | wc -l
+netstat -an | grep :443 | wc -l
+
+# Monitor log file growth
+watch -n 1 'wc -l /var/log/linkchecker.log'
+```
+
+## 📊 Performance Optimization
+
+### Recommended Settings by Website Size
+
+**Small websites (< 100 pages):**
+```bash
+PARALLEL_WORKERS=5
+BATCH_SIZE=25
+MAX_URLS=500
+```
+
+**Medium websites (100-1000 pages):**
+```bash
+PARALLEL_WORKERS=15
+BATCH_SIZE=50
+MAX_URLS=2000
+```
+
+**Large websites (1000+ pages):**
+```bash
+PARALLEL_WORKERS=25
+BATCH_SIZE=100
+MAX_URLS=5000
+CONNECTION_CACHE_SIZE=10000
+```
+
+### Memory Management
+```bash
+# Monitor memory usage
+watch -n 1 'ps aux | grep linkchecker.sh'
+
+# Optimize for low memory systems
+export PARALLEL_WORKERS=3
+export BATCH_SIZE=10
+export CONNECTION_CACHE_SIZE=1000
+```
+
+## 📈 Enterprise Integration
+
+### CI/CD Pipeline Integration
+```yaml
+# GitLab CI example
+linkcheck:
+  stage: test
+  script:
+    - ./linkchecker.sh https://staging.example.com - en devops@example.com
+  only:
+    - master
+```
+
+### Monitoring Integration
+```bash
+# Nagios/Icinga check
+if ! ./linkchecker.sh https://example.com - en admin@example.com; then
+    echo "CRITICAL - Linkchecker failed"
+    exit 2
+fi
+```
+
+### API Integration
+```bash
+# Webhook notification on completion
+./linkchecker.sh https://example.com - en admin@example.com
+curl -X POST https://hooks.slack.com/... -d "Linkcheck completed for example.com"
 ```
 
 ## 🔄 Version History
 
-### v1.6 (2025-08-01)
-- 📧 Switched from `mail` to `sendmail` for email delivery
-- 🔧 Fixed duplicate `From:` header issue in email reports
-- 🛠️ Improved email header control and formatting
+### v2.0 (2025-08-18) - Complete Rewrite
+- 🚀 **curl-impersonate Integration**: Revolutionary protection bypass technology
+- ⚡ **Parallel Processing**: Configurable worker pools and batch processing
+- 🎨 **White-Label Branding**: Full customization support for organizations
+- 🔍 **Advanced Protection Detection**: Intelligent Cloudflare/CDN handling
+- 📊 **Performance Optimization**: Connection pooling, caching, single-pass parsing
+- 🌐 **Enhanced Multi-Language**: Professional German and English templates
+- 🛠️ **Enterprise Features**: Comprehensive configuration and monitoring
+- 📧 **Professional Reporting**: Responsive HTML emails with detailed analytics
 
-### v1.5 (2025-07-30)
-- 📧 Setting proper Reply-To and Return-Path values when sending email
-- 🔧 Small refactoring improvements
-
-### v1.4 (2025-07-28)
-- ✨ Added YouTube video availability checking
-- 🔧 Enhanced command-line argument parsing
-- 📊 Improved CRON integration with silent operation
-- 🛠️ Better error handling and cleanup procedures
-- 📱 Enhanced responsive email design
-- ⚙️ Configurable linkchecker parameters
-- 🚀 Performance improvements and rate limiting
-
-### v1.0 (2025-07-03)
-- 🎉 Initial release
-- 🔗 Basic link checking functionality
-- 📧 HTML email reporting
-- 🌐 Bilingual support (DE/EN)
+### Previous Versions
+- v1.6 (2025-08-01): Sendmail integration improvements
+- v1.5 (2025-07-30): Email header enhancements  
+- v1.4 (2025-07-28): YouTube checking and CRON optimization
+- v1.0 (2025-07-03): Initial release
 
 ## 📄 License
 
@@ -420,15 +519,32 @@ No license, no warranties, use however you like.
 
 ## 🏆 Acknowledgments
 
-- Built on top of [LinkChecker](https://linkchecker.github.io/linkchecker/) by Bastian Kleineidam
-- YouTube validation using YouTube oEmbed API
-- Inspired by the need for professional website monitoring tools
-- Designed for system administrators and web developers
+- Built with **curl-impersonate** by [lwthiker](https://github.com/lwthiker/curl-impersonate)
+- YouTube validation using **YouTube oEmbed API**
+- Inspired by enterprise website monitoring requirements
+- Designed for system administrators, DevOps teams, and web developers
 
 ## 🤝 Contributing
 
-Feel free to submit issues, feature requests, or pull requests. All contributions are welcome!
+Contributions welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+### Development Setup
+```bash
+# Clone repository
+git clone https://github.com/lexo-ch/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script.git
+cd LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script
+
+# Set up development environment
+chmod +x linkchecker.sh
+mkdir -p curl logs
+
+# Run tests
+DEBUG=true ./linkchecker.sh --help
+```
 
 ## 📞 Support
 
-For questions or support, please open an issue on GitHub or contact the maintainer.
+Generally, there's no support. Everyone can use it freely, extend or modify it and use it at own risk. You can open an issue on Github but we're not promising active support. We might though. Depends on the weather ;)
+- Open an issue on GitHub: https://github.com/lexo-ch/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/issues
+- Contact: websupport@lexo.ch
+- Documentation: See script comments for technical details
