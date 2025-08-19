@@ -135,11 +135,16 @@
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.2"
+SCRIPT_VERSION="2.3"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
 MAIL_SENDER_NAME="YOURCOMPANY Support"
+
+# Theme Color Configuration
+# Change this single variable to customize the primary color throughout the report
+# Default: #832883 (purple)
+THEME_COLOR="#832883"
 
 #==============================================================================
 # LANGUAGE TEMPLATES - GERMAN
@@ -1310,37 +1315,37 @@ HTMLEOF
     
     echo "<title>$LANG_SUBJECT</title>"
     
-    cat <<'HTMLEOF'
+    cat <<HTMLEOF
 <style>
 body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f5f5f5}
 .container{max-width:1200px;margin:20px auto;background:white;padding:30px;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
 .header{text-align:center;margin-bottom:30px}
 .logo{width:200px;height:auto;margin-bottom:20px}
 h1{color:#333;font-size:28px;font-weight:normal;text-align:center;margin:10px 0 30px 0}
-.intro-box{background:#f0f4f8;padding:20px;border-left:4px solid #4a90e2;margin-bottom:30px}
+.intro-box{background:#f0f4f8;padding:20px;border-left:4px solid $THEME_COLOR;margin-bottom:30px}
 .intro-box p{margin:0;color:#333;font-size:15px}
-.intro-box a{color:#4a90e2;text-decoration:none}
+.intro-box a{color:$THEME_COLOR;text-decoration:none}
 .intro-box a:hover{text-decoration:underline}
 .cms-section{background:#e8f4fd;padding:15px;border-radius:3px;margin-bottom:30px}
 .cms-section h2{color:#2c5282;font-size:16px;margin:0 0 10px 0;font-weight:bold}
 .cms-section p{margin:0;color:#333}
-.cms-section a{color:#4a90e2;text-decoration:none;font-weight:bold}
-h2{color:#333;font-size:20px;border-bottom:2px solid #4a90e2;padding-bottom:10px;margin:30px 0 20px 0}
+.cms-section a{color:$THEME_COLOR;text-decoration:none;font-weight:bold}
+h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom:10px;margin:30px 0 20px 0}
 .stats-table{width:100%;border-collapse:collapse;margin-bottom:30px}
 .stats-table tr{border-bottom:1px solid #e0e0e0}
 .stats-table tr:last-child{border-bottom:none}
-.stats-table th{background:#667a8c;color:white;text-align:left;padding:12px;font-weight:normal;width:40%}
+.stats-table th{background:$THEME_COLOR;color:white;text-align:left;padding:12px;font-weight:normal;width:40%}
 .stats-table td{padding:12px;color:#333;background:#f9f9f9}
 .stats-table .error-count{color:#e74c3c;font-weight:bold}
 .stats-table .warning-count{color:#f39c12;font-weight:bold}
 .stats-table .success-rate{color:#27ae60;font-weight:bold}
 .error-table{width:100%;border-collapse:collapse;margin-top:20px}
-.error-table thead th{background:#4a90e2;color:white;padding:12px;text-align:left;font-weight:normal}
+.error-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
 .error-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
 .error-table tbody tr:hover{background:#f5f5f5}
 .error-table tbody tr.css-error{background:#fff3e0}
 .error-table tbody tr.protected-error{background:#f0f0f0}
-.error-table a{color:#4a90e2;text-decoration:none}
+.error-table a{color:$THEME_COLOR;text-decoration:none}
 .error-table a:hover{text-decoration:underline}
 .error-text{color:#e74c3c}
 .info-box{background:#f0f0f0;padding:20px;border-radius:5px;margin:30px 0;border-left:4px solid #999}
