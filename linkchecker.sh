@@ -135,7 +135,7 @@
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.1"
+SCRIPT_VERSION="2.2"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -220,6 +220,13 @@ CONNECTION_CACHE_SIZE="${CONNECTION_CACHE_SIZE:-5000}"  # Curl connection cache
 # Protection Detection Settings
 EXCLUDE_PROTECTED_FROM_REPORT="${EXCLUDE_PROTECTED_FROM_REPORT:-false}"  # Set to true to exclude protected pages from email reports
 
+# CSS Error Handling
+# When CSS files contain broken links, these require developer intervention rather than
+# customer action. Enable this feature to automatically redirect reports containing
+# CSS errors to the web administrator instead of the customer.
+REDIRECT_CSS_ERRORS_TO_ADMIN="${REDIRECT_CSS_ERRORS_TO_ADMIN:-false}"  # Redirect reports with CSS errors to admin
+CSS_ERROR_ADMIN_EMAIL="${CSS_ERROR_ADMIN_EMAIL:-yoursupportmail@yourcompany.tld}"  # Admin email for CSS error reports
+
 # HTTP Settings
 CHECK_METHOD="${CHECK_METHOD:-HEAD}"
 CRAWL_METHOD="GET"
@@ -246,6 +253,10 @@ EXCLUDES=(
     "\/wp-json\/"
     "\/feed\/"
     "\?p=[0-9]+"
+    "bootstrap\.min\.css"
+    "googletagmanager\.com\/gtag\/js"
+    "google\.com\/recaptcha\/api\.js"
+    "google\.com\/maps"
 )
 
 # Skip these rel types
@@ -274,6 +285,7 @@ declare -a ERROR_TEXT_LIST=()
 declare -a ERROR_PARENT_LIST=()
 declare -a DYNAMIC_EXCLUDES=()
 declare -a REMAINING_ARGS=()
+declare -a EXCLUDED_URL_LIST=()  # Track excluded URLs for debug summary
 
 # Counters
 TOTAL_URLS=0
@@ -283,6 +295,7 @@ CHECK_DURATION=0
 ERRORS_FOUND=false
 YOUTUBE_URLS_CHECKED=0
 YOUTUBE_ERRORS=0
+CSS_ERRORS_FOUND=false  # Track if any errors were found in CSS files
 
 # Global domain for logging
 CURRENT_DOMAIN=""
@@ -363,13 +376,20 @@ Parameters:
   mailto          Email addresses (comma-separated)
 
 Options:
-  --exclude=REGEX     Add exclude pattern
-  --max-depth=N       Maximum crawl depth (default: unlimited)
-  --max-urls=N        Maximum URLs to check (default: unlimited)
-  --parallel=N        Number of parallel workers (default: 10)
-  --batch-size=N      URLs per batch (default: 50)
+  --exclude REGEX     Add exclude pattern (can use multiple times)
+  --max-depth N       Maximum crawl depth (default: unlimited)
+  --max-urls N        Maximum URLs to check (default: unlimited)
+  --parallel N        Number of parallel workers (default: 20)
+  --batch-size N      URLs per batch (default: 50)
   --debug             Enable debug output
   -h, --help          Show this help
+
+Note: Options also support '=' syntax (e.g., --exclude=REGEX, --max-depth=5)
+
+Examples:
+  $(basename "$0") https://example.com - de admin@example.com --debug
+  $(basename "$0") https://example.com - en admin@example.com --exclude "/api" --exclude "\.pdf$"
+  $(basename "$0") https://example.com - en admin@example.com --max-urls=100 --parallel=5
 EOF
 }
 
@@ -411,21 +431,71 @@ parse_arguments() {
     REMAINING_ARGS=()
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --exclude)
+                # Handle --exclude pattern (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    DYNAMIC_EXCLUDES+=("$1")
+                    shift
+                else
+                    die "Missing value for --exclude parameter"
+                fi
+                ;;
             --exclude=*)
                 DYNAMIC_EXCLUDES+=("${1#*=}")
                 shift
+                ;;
+            --max-depth)
+                # Handle --max-depth N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    MAX_DEPTH="$1"
+                    shift
+                else
+                    die "Missing value for --max-depth parameter"
+                fi
                 ;;
             --max-depth=*)
                 MAX_DEPTH="${1#*=}"
                 shift
                 ;;
+            --max-urls)
+                # Handle --max-urls N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    MAX_URLS="$1"
+                    shift
+                else
+                    die "Missing value for --max-urls parameter"
+                fi
+                ;;
             --max-urls=*)
                 MAX_URLS="${1#*=}"
                 shift
                 ;;
+            --parallel)
+                # Handle --parallel N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    PARALLEL_WORKERS="$1"
+                    shift
+                else
+                    die "Missing value for --parallel parameter"
+                fi
+                ;;
             --parallel=*)
                 PARALLEL_WORKERS="${1#*=}"
                 shift
+                ;;
+            --batch-size)
+                # Handle --batch-size N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    BATCH_SIZE="$1"
+                    shift
+                else
+                    die "Missing value for --batch-size parameter"
+                fi
                 ;;
             --batch-size=*)
                 BATCH_SIZE="${1#*=}"
@@ -523,7 +593,14 @@ normalize_url() {
 is_url_excluded() {
     local url="$1"
     for pattern in "${EXCLUDES[@]}" "${DYNAMIC_EXCLUDES[@]}"; do
-        [[ "$url" =~ $pattern ]] && return 0
+        # Use grep -E for extended regex matching to ensure proper regex interpretation
+        if echo "$url" | grep -qE "$pattern"; then
+            # Track excluded URL for debug summary (only add once)
+            if [[ "$DEBUG" == "true" ]] && [[ ! " ${EXCLUDED_URL_LIST[@]} " =~ " ${url} " ]]; then
+                EXCLUDED_URL_LIST+=("$url|$pattern")
+            fi
+            return 0
+        fi
     done
     return 1
 }
@@ -875,7 +952,7 @@ check_url_worker() {
 }
 
 export -f check_url_worker http_request_pooled create_curl_config normalize_url debug_message is_url_valid
-export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN EXCLUDE_PROTECTED_FROM_REPORT LANG_PROTECTION_DETECTED MAX_URL_LENGTH
+export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN EXCLUDE_PROTECTED_FROM_REPORT LANG_PROTECTION_DETECTED MAX_URL_LENGTH CSS_ERRORS_FOUND REDIRECT_CSS_ERRORS_TO_ADMIN
 
 check_urls_parallel() {
     local base_url="$1"
@@ -946,6 +1023,12 @@ check_urls_parallel() {
                 ERROR_PARENT_LIST+=("$parent")
                 ((ERROR_COUNT++))
                 ERRORS_FOUND=true
+                
+                # Check if the error is from a CSS file
+                if [[ "$parent" =~ \.css(\?.*)?$ ]]; then
+                    CSS_ERRORS_FOUND=true
+                    debug_message "CSS error detected: $url found in $parent"
+                fi
                 ;;
             PROTECTED_ERROR)
                 ((protected_count++))
@@ -956,6 +1039,12 @@ check_urls_parallel() {
                     ERROR_PARENT_LIST+=("$parent")
                     ((ERROR_COUNT++))
                     ERRORS_FOUND=true
+                    
+                    # Check if the error is from a CSS file
+                    if [[ "$parent" =~ \.css(\?.*)?$ ]]; then
+                        CSS_ERRORS_FOUND=true
+                        debug_message "CSS error detected: $url found in $parent"
+                    fi
                 else
                     debug_message "Excluding protected page from report: $url"
                 fi
@@ -1192,7 +1281,7 @@ check_youtube_videos_parallel() {
 }
 
 #==============================================================================
-# Report Generation (unchanged)
+# Report Generation
 #==============================================================================
 
 generate_report() {
@@ -1276,6 +1365,16 @@ HTMLEOF
     cat <<'HTMLEOF'
 </div>
 HTMLEOF
+    
+    # Add CSS error notice if report was redirected
+    if [[ "$CSS_ERRORS_FOUND" == "true" ]] && [[ "$REDIRECT_CSS_ERRORS_TO_ADMIN" == "true" ]]; then
+        cat <<'HTMLEOF'
+<div class="info-box" style="border-left-color: #ff9800;">
+    <h3>Developer Intervention Required</h3>
+    <p>This report contains errors found in CSS files. Since CSS files require developer access to fix, this report has been sent to the web administrator instead of the regular recipient. The CSS errors are highlighted in orange in the table below.</p>
+</div>
+HTMLEOF
+    fi
     
     # Add CMS link section if provided
     if [[ "$cms_url" != "-" ]]; then
@@ -1394,6 +1493,46 @@ send_email() {
 }
 
 #==============================================================================
+# Debug Functions
+#==============================================================================
+
+display_excluded_urls_summary() {
+    if [[ "$DEBUG" != "true" ]] || [[ ${#EXCLUDED_URL_LIST[@]} -eq 0 ]]; then
+        return
+    fi
+    
+    debug_message ""
+    debug_message "=========================================="
+    debug_message "=== EXCLUDED URLs SUMMARY ==="
+    debug_message "=========================================="
+    debug_message "Total excluded URLs: ${#EXCLUDED_URL_LIST[@]}"
+    debug_message ""
+    
+    # Group by pattern
+    declare -A pattern_counts
+    declare -A pattern_examples
+    
+    for entry in "${EXCLUDED_URL_LIST[@]}"; do
+        IFS='|' read -r url pattern <<< "$entry"
+        ((pattern_counts["$pattern"]++))
+        if [[ -z "${pattern_examples[$pattern]}" ]]; then
+            pattern_examples["$pattern"]="$url"
+        fi
+    done
+    
+    # Display summary by pattern
+    for pattern in "${!pattern_counts[@]}"; do
+        debug_message "Pattern: '$pattern'"
+        debug_message "  Matched: ${pattern_counts[$pattern]} URL(s)"
+        debug_message "  Example: ${pattern_examples[$pattern]}"
+        debug_message ""
+    done
+    
+    debug_message "=========================================="
+    debug_message ""
+}
+
+#==============================================================================
 # Main
 #==============================================================================
 
@@ -1436,6 +1575,9 @@ main() {
     
     CHECK_DURATION=$(($(date +%s) - start_time))
     
+    # Display excluded URLs summary before generating report
+    display_excluded_urls_summary
+    
     if [[ "$ERRORS_FOUND" != "true" ]]; then
         log_message "No errors found"
         return 0
@@ -1443,7 +1585,18 @@ main() {
     
     log_message "Generating report"
     local report=$(generate_report "$base_url" "$cms_url")
-    send_email "$mailto" "$base_url" "$report"
+    
+    # Determine recipient based on CSS errors
+    local final_mailto="$mailto"
+    if [[ "$CSS_ERRORS_FOUND" == "true" ]] && [[ "$REDIRECT_CSS_ERRORS_TO_ADMIN" == "true" ]]; then
+        log_message "CSS errors detected - redirecting report to administrator: $CSS_ERROR_ADMIN_EMAIL"
+        final_mailto="$CSS_ERROR_ADMIN_EMAIL"
+        
+        # Add note to report about redirection (optional - could be added to report generation)
+        debug_message "Report redirected from $mailto to $CSS_ERROR_ADMIN_EMAIL due to CSS errors"
+    fi
+    
+    send_email "$final_mailto" "$base_url" "$report"
     
     log_message "Complete (Duration: ${CHECK_DURATION}s)"
     return 0
