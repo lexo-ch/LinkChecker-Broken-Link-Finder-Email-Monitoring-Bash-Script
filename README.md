@@ -43,7 +43,7 @@ A professional website link validation system built in Bash that overcomes moder
 
 **curl-impersonate-chrome** (Essential for protection bypass):
 
-_"Grab it straight from the original repository or snag our version right here — if you’re feeling brave enough and trust us! 😄_
+_Grab it straight from the original repository or snag our version right here — if you’re feeling brave enough and trust us! 😄_
 
 ```bash
 # Download and install curl-impersonate
