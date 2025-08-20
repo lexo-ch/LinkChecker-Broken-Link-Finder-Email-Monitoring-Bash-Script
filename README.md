@@ -1,34 +1,38 @@
-# LEXO Website Linkchecker v2.0
+# LEXO Website Linkchecker v2.4
 
 A professional website link validation system built in Bash that overcomes modern web protection mechanisms. Features intelligent crawling, parallel processing, and sophisticated HTML email reporting with white-label branding capabilities.
 
-## 🚀 What's New in v2.0
+## 🚀 What's New in v2.4
 
-### Revolutionary Protection Bypass Technology
-- **curl-impersonate Integration**: Mimics real Chrome browser behavior to bypass Cloudflare, AWS CloudFront, and other CDN protections
-- **Advanced Fingerprinting**: Uses authentic browser TLS signatures and HTTP/2 patterns
-- **Intelligent Protection Detection**: Automatically identifies and handles protected pages
+### Enhanced URL Detection & Validation
+- **Custom HTML Attributes Support**: Automatically extracts URLs from custom attributes like `data-href`, `data-src`, `ng-href`, `ng-src`, and other framework-specific attributes
+- **Intelligent URL Validation**: Detects and filters malformed URLs, repeating patterns (e.g., Facebook widget loops), and excessive query parameters
+- **Smart HTTP Method Selection**: Uses GET for external URLs and HEAD for internal URLs with automatic fallback for better compatibility
 
-### Performance & Scalability
-- **Parallel Processing**: Configurable worker pools for concurrent URL checking (up to 20 workers)
-- **Connection Pooling**: Reuses HTTP connections to reduce overhead
-- **Batch Processing**: Optimized resource utilization with configurable batch sizes
-- **Smart Caching**: O(1) lookup performance with associative arrays
-- **Single-Pass Parsing**: Highly optimized HTML/CSS parsing
+### Advanced Error Handling
+- **CSS Error Detection & Routing**: Automatically detects errors in CSS files and can redirect reports to web administrators instead of customers
+- **YouTube Retry Logic**: Implements automatic retry with exponential backoff for YouTube oEmbed API checks to reduce false positives
+- **Enhanced Protection Detection**: Improved detection of CDN/WAF protection with configurable exclusion from error reports
 
-### Enterprise Features
-- **White-Label Branding**: Fully customizable logos, colors, and organizational branding
-- **Multi-Language Support**: Professional German and English report templates
-- **Comprehensive Analytics**: Detailed statistics, performance metrics, and success rates
-- **Scalability Controls**: Configurable limits for depth, URL count, and resource consumption
+### Improved Customization
+- **Theme Color Configuration**: Single `THEME_COLOR` variable to customize the primary color throughout email reports
+- **Extended Language Templates**: Comprehensive multi-language support with dynamic placeholders for base URL and CMS URL
+- **Expanded Default Exclusions**: More comprehensive exclude patterns including social media platforms and common CDN resources
+
+### Developer Features
+- **Debug Mode Enhancements**: Excluded URLs summary with pattern grouping for better debugging
+- **Configurable Retry Attempts**: Customizable maximum retry attempts for YouTube video checks
+- **URL Length Limits**: Configurable maximum URL length to prevent processing of malformed or infinite URLs
 
 ## ✨ Core Features
 
-- **Intelligent Website Crawling**: Discovers links from HTML, CSS, and various media formats
-- **Advanced Link Validation**: Parallel HTTP requests with optimized HEAD/GET fallback
-- **YouTube Video Validation**: Checks video availability using oEmbed API with rate limiting
-- **Professional Email Reports**: Responsive HTML emails with detailed analytics and branding
+- **Intelligent Website Crawling**: Discovers links from HTML, CSS, and custom attributes in JavaScript frameworks
+- **Advanced Link Validation**: Parallel HTTP requests with smart HEAD/GET method selection
+- **YouTube Video Validation**: Checks video availability with automatic retry and exponential backoff
+- **Professional Email Reports**: Responsive HTML emails with customizable theme colors and branding
+- **CSS Error Management**: Automatic detection and routing of CSS-related errors to developers
 - **Protection-Aware Checking**: Identifies and properly handles CDN-protected websites
+- **URL Validation Engine**: Filters malformed URLs, infinite loops, and excessive parameters
 - **Flexible Configuration**: Extensive command-line options and environment variables
 - **Enterprise Logging**: Comprehensive audit trails with timestamp and domain context
 - **Integration Ready**: Designed for cron jobs, CI/CD pipelines, and monitoring systems
@@ -95,6 +99,9 @@ LOGO_URL="https://yourcompany.com/logo.png"
 LOGO_ALT="Your Company Logo"
 MAIL_SENDER="websupport@yourcompany.com"
 MAIL_SENDER_NAME="Your Company | Web Support"
+
+# Theme Color Configuration (v2.4+)
+THEME_COLOR="#832883"  # Change this to customize report colors
 ```
 
 ### 4. Set Up Email (SMTP)
@@ -155,9 +162,14 @@ export LOG_FILE="/path/to/your/linkchecker.log"
 | `LOG_FILE` | Log file location | `/var/log/linkchecker.log` |
 | `PARALLEL_WORKERS` | Number of workers | `20` |
 | `BATCH_SIZE` | Batch processing size | `50` |
-| `MAX_DEPTH` | Crawl depth limit | `-1` (unlimited) |
-| `MAX_URLS` | URL check limit | `-1` (unlimited) |
+| `MAX_DEPTH` | Crawl depth limit | `50` |
+| `MAX_URLS` | URL check limit | `15000` |
+| `MAX_URL_LENGTH` | Maximum URL length to process | `2000` |
 | `EXCLUDE_PROTECTED_FROM_REPORT` | Hide protected pages from reports | `false` |
+| `REDIRECT_CSS_ERRORS_TO_ADMIN` | Redirect CSS error reports to admin | `false` |
+| `CSS_ERROR_ADMIN_EMAIL` | Admin email for CSS errors | `yoursupportmail@yourcompany.tld` |
+| `YOUTUBE_MAX_RETRIES` | Maximum retry attempts for YouTube checks | `3` |
+| `THEME_COLOR` | Primary color for email reports | `#832883` |
 
 ## 📖 Usage Examples
 
@@ -204,16 +216,33 @@ DEBUG=true PARALLEL_WORKERS=10 ./linkchecker.sh --debug https://example.com - en
 ## 🎛️ Advanced Configuration
 
 ### URL Exclusion Patterns
-Customize exclusion patterns in the script:
+Customize exclusion patterns in the script (expanded in v2.4):
 ```bash
 EXCLUDES=(
-    "\/xmlrpc\.php"           # WordPress XML-RPC
-    "\/wp-json\/"             # WordPress REST API
-    "\/feed\/"                # RSS feeds
-    "\?p=[0-9]+"             # WordPress post IDs
-    "\.pdf$"                  # PDF files
-    "\/api\/"                 # API endpoints
-    "\/admin\/"               # Admin areas
+    "\/xmlrpc\.php"                    # WordPress XML-RPC
+    "\/wp-json\/"                      # WordPress REST API
+    "\/feed\/"                         # RSS feeds
+    "\?p=[0-9]+"                       # WordPress post IDs
+    "bootstrap\.min\.css"              # Bootstrap CDN
+    "googletagmanager\.com\/gtag\/js"  # Google Analytics
+    "google\.com\/recaptcha\/api\.js"  # Google reCAPTCHA
+    "google\.com\/maps"                # Google Maps
+    "leaflet\.css"                     # Leaflet maps
+    "jquery\.mCustomScrollbar\.min\.css" # jQuery plugins
+    "https:\/\/(www\.)?linkedin\.com"  # LinkedIn (often blocked)
+)
+```
+
+### Custom HTML Attributes (v2.4+)
+Configure custom attributes to check for URLs:
+```bash
+CUSTOM_ATTR_INCLUDES=(
+    "data-href"        # JavaScript modal windows
+    "data-src"         # Lazy-loaded images
+    "data-url"         # Custom widgets
+    "ng-href"          # Angular framework
+    "ng-src"           # Angular images
+    "ng-srcset"        # Angular responsive images
 )
 ```
 
@@ -239,16 +268,35 @@ export EXCLUDE_PROTECTED_FROM_REPORT=true
 export CURL_IMPERSONATE_BINARY="/usr/local/bin/curl-impersonate-chrome"
 ```
 
+### CSS Error Handling (v2.4+)
+```bash
+# Redirect reports with CSS errors to developers
+export REDIRECT_CSS_ERRORS_TO_ADMIN=true
+export CSS_ERROR_ADMIN_EMAIL="developer@yourcompany.com"
+
+# CSS errors require developer access and can't be fixed by content editors
+```
+
+### YouTube Check Configuration (v2.4+)
+```bash
+# Configure retry attempts for YouTube API
+export YOUTUBE_MAX_RETRIES=3  # Try up to 3 times
+export YOUTUBE_OEMBED_DELAY=1  # Delay between checks
+```
+
 ## 📧 Email Reports
 
 ### Report Features
 - **Executive Summary**: Duration, URLs checked, success rate, error counts
-- **YouTube Analytics**: Video availability statistics
+- **YouTube Analytics**: Video availability statistics with retry information
 - **Detailed Error Tables**: Clickable links with error descriptions and source pages
 - **Protection Detection**: Special handling for CDN-protected pages
-- **CSS Error Highlighting**: Visual distinction for CSS-related errors
+- **CSS Error Highlighting**: Orange highlighting for CSS-related errors (v2.4+)
+- **Developer Routing**: Automatic redirection of CSS error reports to admins (v2.4+)
 - **Mobile Responsive**: Professional design optimized for all devices
+- **Theme Customization**: Single-variable color theming throughout reports (v2.4+)
 - **White-Label Branding**: Customizable logos and company information
+- **Debug Summary**: Pattern-grouped excluded URLs summary (v2.4+)
 
 ### Language Customization
 Modify language templates in the script:
@@ -496,6 +544,16 @@ curl -X POST https://hooks.slack.com/... -d "Linkcheck completed for example.com
 ```
 
 ## 🔄 Version History
+
+### v2.4 (2025-08-20) - Enhanced Detection & Customization
+- 🎯 **Custom Attribute Support**: Extract URLs from framework-specific HTML attributes
+- 🔄 **YouTube Retry Logic**: Automatic retry with exponential backoff for API checks
+- 🎨 **Theme Color System**: Single-variable color customization for reports
+- 📧 **CSS Error Routing**: Automatic redirection of CSS errors to developers
+- 🛡️ **Smart HTTP Methods**: Optimized HEAD/GET selection based on URL type
+- 🔍 **URL Validation Engine**: Detection of malformed URLs and infinite loops
+- 📊 **Debug Enhancements**: Pattern-grouped excluded URLs summary
+- 🌐 **Extended Exclusions**: Comprehensive default patterns for social media and CDNs
 
 ### v2.0 (2025-08-18) - Complete Rewrite
 - 🚀 **curl-impersonate Integration**: Revolutionary protection bypass technology
