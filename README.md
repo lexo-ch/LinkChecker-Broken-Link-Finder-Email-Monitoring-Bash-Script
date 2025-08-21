@@ -1,6 +1,20 @@
-# LEXO Website Linkchecker v2.4
+# LEXO Website Linkchecker v2.5
 
 A professional website link validation system built in Bash that overcomes modern web protection mechanisms. Features intelligent crawling, parallel processing, and sophisticated HTML email reporting with white-label branding capabilities.
+
+## 🚀 What's New in v2.5
+
+### Infinite Loop Detection & Prevention
+- **URL Loop Detection**: New `detect_url_loops()` function analyzes URL patterns to identify potential infinite loops (e.g., `/home/services/home/services/`)
+- **Smart Pattern Recognition**: Detects consecutive repetitions, pattern repetitions, and suspicious segment occurrences
+- **MAX_URLS Email Notifications**: Automatic email alerts when URL limits are reached, with detailed reports including loop analysis
+- **Configurable Thresholds**: Fine-tune loop detection sensitivity with `URL_LOOP_THRESHOLD` and `URL_LOOP_MIN_SEGMENTS`
+- **Exclusion Support**: Loop detection respects both global `EXCLUDES` array and `--exclude` CLI parameters
+
+### Enhanced Configuration
+- **Improved Variable Naming**: All boolean variables now use intuitive ENABLE pattern (true = enabled)
+- **Default MAX_URLS**: Set to 5000 for better infinite loop protection
+- **Extended CLI Options**: New options for loop detection and protection page handling
 
 ## 🚀 What's New in v2.4
 
@@ -152,6 +166,10 @@ export LOG_FILE="/path/to/your/linkchecker.log"
 | `--parallel=N` | Number of parallel workers | 20 | `--parallel=10` |
 | `--batch-size=N` | URLs per processing batch | 50 | `--batch-size=25` |
 | `--debug` | Enable debug output | false | `--debug` |
+| `--send-max-urls-report` | Send email when MAX_URLS limit is reached | true | `--send-max-urls-report` |
+| `--max-urls-email=EMAIL` | Email address for MAX_URLS notifications | admin email | `--max-urls-email=admin@example.com` |
+| `--disable-url-loop-warning` | Disable URL loop detection warnings | false | `--disable-url-loop-warning` |
+| `--exclude-protected-pages` | Exclude protected pages from reports | false | `--exclude-protected-pages` |
 | `-h, --help` | Show help message | - | `-h` |
 
 ### Environment Variables
@@ -163,10 +181,15 @@ export LOG_FILE="/path/to/your/linkchecker.log"
 | `PARALLEL_WORKERS` | Number of workers | `20` |
 | `BATCH_SIZE` | Batch processing size | `50` |
 | `MAX_DEPTH` | Crawl depth limit | `50` |
-| `MAX_URLS` | URL check limit | `15000` |
+| `MAX_URLS` | URL check limit | `5000` |
 | `MAX_URL_LENGTH` | Maximum URL length to process | `2000` |
-| `EXCLUDE_PROTECTED_FROM_REPORT` | Hide protected pages from reports | `false` |
-| `REDIRECT_CSS_ERRORS_TO_ADMIN` | Redirect CSS error reports to admin | `false` |
+| `INCLUDE_PROTECTED_IN_REPORT` | Include protected pages in reports | `true` |
+| `REDIRECT_CSS_ERRORS_TO_ADMIN` | Redirect CSS error reports to admin | `true` |
+| `URL_LOOP_THRESHOLD` | Repetitions needed to flag as loop | `2` |
+| `URL_LOOP_MIN_SEGMENTS` | Minimum URL segments to check for loops | `2` |
+| `URL_LOOP_ENABLE_WARNING` | Show URL loop warnings in reports | `true` |
+| `SEND_REPORT_ON_MAX_URLS_REACHED` | Send notification when MAX_URLS is reached | `true` |
+| `MAX_URLS_ADMIN_EMAIL` | Email for MAX_URLS notifications | `yoursupportmail@yourcompany.tld` |
 | `CSS_ERROR_ADMIN_EMAIL` | Admin email for CSS errors | `yoursupportmail@yourcompany.tld` |
 | `YOUTUBE_MAX_RETRIES` | Maximum retry attempts for YouTube checks | `3` |
 | `THEME_COLOR` | Primary color for email reports | `#832883` |
@@ -261,8 +284,8 @@ export REQUEST_DELAY=1
 
 ### Protection Detection Settings
 ```bash
-# Exclude protected pages from error reports
-export EXCLUDE_PROTECTED_FROM_REPORT=true
+# Include protected pages in error reports (set to false to exclude)
+export INCLUDE_PROTECTED_IN_REPORT=false
 
 # Custom curl-impersonate binary location
 export CURL_IMPERSONATE_BINARY="/usr/local/bin/curl-impersonate-chrome"
@@ -270,8 +293,8 @@ export CURL_IMPERSONATE_BINARY="/usr/local/bin/curl-impersonate-chrome"
 
 ### CSS Error Handling (v2.4+)
 ```bash
-# Redirect reports with CSS errors to developers
-export REDIRECT_CSS_ERRORS_TO_ADMIN=true
+# Redirect reports with CSS errors to developers (enabled by default)
+export REDIRECT_CSS_ERRORS_TO_ADMIN=true  # Default: true
 export CSS_ERROR_ADMIN_EMAIL="developer@yourcompany.com"
 
 # CSS errors require developer access and can't be fixed by content editors
@@ -284,6 +307,22 @@ export YOUTUBE_MAX_RETRIES=3  # Try up to 3 times
 export YOUTUBE_OEMBED_DELAY=1  # Delay between checks
 ```
 
+### URL Loop Detection Configuration (v2.5+)
+```bash
+# Configure loop detection sensitivity
+export URL_LOOP_THRESHOLD=2        # Number of repetitions to flag as loop
+export URL_LOOP_MIN_SEGMENTS=2     # Minimum segments to check
+export URL_LOOP_ENABLE_WARNING=true # Show warnings in reports
+
+# MAX_URLS notifications
+export SEND_REPORT_ON_MAX_URLS_REACHED=true
+export MAX_URLS_ADMIN_EMAIL="admin@yourcompany.com"
+
+# Example of URLs that would be detected:
+# https://example.com/home/services/home/services/ (pattern repetition)
+# https://example.com/about/about/about/ (consecutive repetition)
+```
+
 ## 📧 Email Reports
 
 ### Report Features
@@ -291,6 +330,8 @@ export YOUTUBE_OEMBED_DELAY=1  # Delay between checks
 - **YouTube Analytics**: Video availability statistics with retry information
 - **Detailed Error Tables**: Clickable links with error descriptions and source pages
 - **Protection Detection**: Special handling for CDN-protected pages
+- **URL Loop Detection**: Identification of infinite loop patterns with detailed reporting (v2.5+)
+- **MAX_URLS Notifications**: Automatic alerts when URL limits are reached (v2.5+)
 - **CSS Error Highlighting**: Orange highlighting for CSS-related errors (v2.4+)
 - **Developer Routing**: Automatic redirection of CSS error reports to admins (v2.4+)
 - **Mobile Responsive**: Professional design optimized for all devices
@@ -434,7 +475,7 @@ export LOG_FILE="/home/user/linkchecker.log"
 **Protected pages still showing as errors**
 ```bash
 # Exclude protected pages from reports
-export EXCLUDE_PROTECTED_FROM_REPORT=true
+export INCLUDE_PROTECTED_IN_REPORT=false
 ./linkchecker.sh https://example.com - en admin@example.com
 
 # Protected pages will be detected but not included in error count
@@ -544,6 +585,14 @@ curl -X POST https://hooks.slack.com/... -d "Linkcheck completed for example.com
 ```
 
 ## 🔄 Version History
+
+### v2.5 (2025-08-21) - Infinite Loop Detection & Prevention
+- 🔄 **URL Loop Detection**: Revolutionary pattern analysis to identify infinite loops
+- 📧 **MAX_URLS Notifications**: Automatic email alerts with comprehensive reports
+- 🎯 **Smart Exclusions**: Loop detection respects exclude patterns
+- ⚙️ **Variable Naming**: Improved boolean variables with ENABLE pattern
+- 📊 **Enhanced Reporting**: Loop patterns included in MAX_URLS reports
+- 🛡️ **Default Changes**: MAX_URLS set to 5000, CSS error redirect enabled by default
 
 ### v2.4 (2025-08-20) - Enhanced Detection & Customization
 - 🎯 **Custom Attribute Support**: Extract URLs from framework-specific HTML attributes

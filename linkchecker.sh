@@ -137,7 +137,7 @@
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.4"
+SCRIPT_VERSION="2.5"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -155,6 +155,9 @@ THEME_COLOR="#832883"
 # Available placeholders:
 #   ###base_url### - The checked website URL
 #   ###cms_url###  - The CMS login URL
+#   ###max_urls### - The MAX_URLS limit value
+#   ###crawled_count### - Number of URLs crawled when MAX_URLS was reached
+#   ###discovered_count### - Total URLs discovered when MAX_URLS was reached
 
 LANG_DE_SUBJECT="Defekte Links auf der Website gefunden"
 LANG_DE_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
@@ -179,6 +182,13 @@ LANG_DE_CSS_NOTE="Orange Zeilen zeigen Fehler aus CSS-Dateien"
 LANG_DE_PROTECTION_TITLE="Seitenschutz erkannt - was bedeutet das?"
 LANG_DE_PROTECTION_TEXT="Einige Webseiten verwenden Schutzmechanismen (z.B. Cloudflare), die automatische Überprüfungen blockieren. Diese Seiten erscheinen als Fehler, sind aber für normale Besucher erreichbar. Sie müssen diese Links manuell im Browser überprüfen. Keinen Bericht mehr für Seitenschutz-Fehler erhalten? Antworten Sie auf diese E-Mail und teilen Sie uns dies kurz mit."
 LANG_DE_PROTECTION_DETECTED="(Seitenschutz erkannt)"
+LANG_DE_MAX_URLS_SUBJECT="Linkchecker hat die maximale URL-Grenze erreicht"
+LANG_DE_MAX_URLS_TITLE="Maximale URL-Grenze erreicht"
+LANG_DE_MAX_URLS_TEXT="Die automatische Überprüfung Ihrer Webseite ###base_url### musste nach Erreichen der maximalen URL-Grenze von ###max_urls### URLs gestoppt werden. Dies kann auf ein Problem mit der Website-Struktur hinweisen (z.B. Endlosschleifen, dynamische URL-Generierung oder sehr große Sitemaps).<br><br>Die Überprüfung wurde bei URL Nummer ###crawled_count### während des Crawlings gestoppt. Insgesamt wurden ###discovered_count### URLs entdeckt.<br><br>Empfohlene Maßnahmen:<br>• Überprüfen Sie die Website-Struktur auf Endlosschleifen<br>• Prüfen Sie dynamisch generierte URLs<br>• Erwägen Sie, das URL-Limit zu erhöhen oder spezifische Bereiche auszuschließen"
+LANG_DE_URL_LOOP_TITLE="Achtung: Mögliche URL-Endlosschleife erkannt!"
+LANG_DE_URL_LOOP_TEXT="Auf Ihrer Webseite wurden URLs mit sich wiederholenden Mustern gefunden. Dies deutet auf ein technisches Problem hin, bei dem sich Links immer wieder selbst aufrufen, oder auf eine für Suchmaschinen (SEO) ungünstige Linkstruktur.<br><br><strong>Was bedeutet das für Sie?</strong><br>• Ihre Webseite könnte für Besucher verwirrend sein<br>• Suchmaschinen (wie Google) könnten Ihre Seite schlechter bewerten<br>• Die Webseite könnte langsamer werden<br>• Ihr Suchmaschinen-Ranking könnte sich verschlechtern<br><br><strong>Was sollten Sie tun?</strong><br>Überprüfen Sie die unten aufgelisteten URLs und passen Sie die Linkstruktur Ihrer Webseite an. Das Problem sollte zeitnah behoben werden, um die Funktionalität und Sichtbarkeit Ihrer Webseite zu gewährleisten. Bei Fragen können Sie sich gerne an uns wenden."
+LANG_DE_URL_LOOP_SUBJECT_SUFFIX=" - Potenzielle URL-Endlosschleife erkannt"
+LANG_DE_URL_LOOP_TABLE_HEADER="URLs mit erkannten Schleifen"
 
 #==============================================================================
 # LANGUAGE TEMPLATES - ENGLISH
@@ -186,6 +196,9 @@ LANG_DE_PROTECTION_DETECTED="(Seitenschutz erkannt)"
 # Available placeholders:
 #   ###base_url### - The checked website URL
 #   ###cms_url###  - The CMS login URL
+#   ###max_urls### - The MAX_URLS limit value
+#   ###crawled_count### - Number of URLs crawled when MAX_URLS was reached
+#   ###discovered_count### - Total URLs discovered when MAX_URLS was reached
 
 LANG_EN_SUBJECT="Broken Links Found on Website"
 LANG_EN_INTRO_TITLE="Broken Links Discovered on Your Website"
@@ -210,6 +223,13 @@ LANG_EN_CSS_NOTE="Orange rows show errors from CSS files"
 LANG_EN_PROTECTION_TITLE="Page protection detected - what does this mean?"
 LANG_EN_PROTECTION_TEXT="Some websites use protection mechanisms (e.g., Cloudflare) that block automated checks. These pages appear as errors but are accessible to normal visitors. You need to manually check these links in your browser. You do not want to receive reports about page protection errors anymore? Please answer on this email and let us know about it."
 LANG_EN_PROTECTION_DETECTED="(page protection detected)"
+LANG_EN_MAX_URLS_SUBJECT="Linkchecker reached maximum URL limit"
+LANG_EN_MAX_URLS_TITLE="Maximum URL Limit Reached"
+LANG_EN_MAX_URLS_TEXT="The automated check of your website ###base_url### had to be stopped after reaching the maximum URL limit of ###max_urls### URLs. This may indicate an issue with the website structure (e.g., infinite loops, dynamic URL generation, or very large sitemaps).<br><br>The check was stopped at URL number ###crawled_count### during crawling. A total of ###discovered_count### URLs were discovered.<br><br>Recommended actions:<br>• Check the website structure for infinite loops<br>• Review dynamically generated URLs<br>• Consider increasing the URL limit or excluding specific areas"
+LANG_EN_URL_LOOP_TITLE="Warning: Potential URL Infinite Loop Detected!"
+LANG_EN_URL_LOOP_TEXT="URLs with repeating patterns have been found on your website. This indicates a technical issue where links are repeatedly calling themselves, or an unfavorable link structure for search engine optimization (SEO).<br><br><strong>What does this mean for you?</strong><br>• Your website might be confusing for visitors<br>• Search engines (like Google) might rate your site lower<br>• The website might become slower<br>• Your search engine ranking could deteriorate<br><br><strong>What should you do?</strong><br>Review the URLs listed below and adjust your website's link structure. The issue should be resolved promptly to ensure your website's functionality and visibility. If you have any questions, feel free to contact us."
+LANG_EN_URL_LOOP_SUBJECT_SUFFIX=" - Potential URL Infinite Loop Detected"
+LANG_EN_URL_LOOP_TABLE_HEADER="URLs with Detected Loops"
 
 #==============================================================================
 # TECHNICAL CONFIGURATION
@@ -225,13 +245,13 @@ BATCH_SIZE="${BATCH_SIZE:-50}"              # URLs to process per batch
 CONNECTION_CACHE_SIZE="${CONNECTION_CACHE_SIZE:-10000}"  # Curl connection cache
 
 # Protection Detection Settings
-EXCLUDE_PROTECTED_FROM_REPORT="${EXCLUDE_PROTECTED_FROM_REPORT:-false}"  # Set to true to exclude protected pages from email reports
+INCLUDE_PROTECTED_IN_REPORT="${INCLUDE_PROTECTED_IN_REPORT:-true}"  # Set to false to exclude protected pages from email reports
 
 # CSS Error Handling
 # When CSS files contain broken links, these require developer intervention rather than
 # customer action. Enable this feature to automatically redirect reports containing
 # CSS errors to the web administrator instead of the customer.
-REDIRECT_CSS_ERRORS_TO_ADMIN="${REDIRECT_CSS_ERRORS_TO_ADMIN:-false}"  # Redirect reports with CSS errors to admin
+REDIRECT_CSS_ERRORS_TO_ADMIN="${REDIRECT_CSS_ERRORS_TO_ADMIN:-true}"  # Redirect reports with CSS errors to admin
 CSS_ERROR_ADMIN_EMAIL="${CSS_ERROR_ADMIN_EMAIL:-yoursupportmail@yourcompany.tld}"  # Admin email for CSS error reports
 
 # HTTP Settings
@@ -247,8 +267,41 @@ CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-./curl/curl-impersonate-chro
 
 # URL Limits. "-1" = unlimited. Recommended to set a limit to prevent problems in case of an endless URL loop
 MAX_DEPTH="${MAX_DEPTH:-50}"
-MAX_URLS="${MAX_URLS:-15000}"
+MAX_URLS="${MAX_URLS:-5000}"
 MAX_URL_LENGTH="${MAX_URL_LENGTH:-2000}"  # Maximum URL length to process
+
+# URL Loop Detection Settings
+# These settings help identify problematic URL structures that indicate infinite loops or 
+# poor site architecture. The detection algorithm checks for:
+# 1. Consecutive repetitions: /page/page/page/ (same segment repeating)
+# 2. Pattern repetitions: /A/B/A/B/A/B/ (pattern of segments repeating)
+# 3. Suspicious repetitions: Multiple instances with regular intervals suggesting loops
+# When loops are detected, a warning is added to the report with examples and the email
+# subject is modified to alert administrators about potential SEO and usability issues.
+#
+# URL_LOOP_THRESHOLD: How many times a segment/pattern must repeat to be flagged as a loop
+#   - Value of 2: Flags /home/home/ or /about/services/about/services/ (2 repetitions)
+#   - Value of 3: Only flags /home/home/home/ or patterns repeating 3+ times
+#   - Lower values (2) catch more potential issues but may have false positives
+#   - Higher values (4-5) reduce false positives but might miss some loops
+URL_LOOP_THRESHOLD="${URL_LOOP_THRESHOLD:-2}"  # Number of repetitions to consider as a loop
+#
+# URL_LOOP_MIN_SEGMENTS: Minimum path segments required before checking for loops
+#   - Value of 3: Only checks URLs with 3+ segments like /a/b/c/ (ignores /a/ or /a/b/)
+#   - Value of 4: Only checks URLs with 4+ segments like /a/b/c/d/
+#   - This prevents false positives on short URLs where repetition might be intentional
+#   - Example: With value 3, /products/products/ won't be checked (only 2 segments)
+#            but /products/category/products/ will be checked (3 segments)
+URL_LOOP_MIN_SEGMENTS="${URL_LOOP_MIN_SEGMENTS:-2}"  # Minimum URL segments to check for loops
+#
+# URL_LOOP_ENABLE_WARNING: Enable URL loop warning in reports
+#   - Set to true to show URL loop warnings in reports (default)
+#   - Set to false if you have intentional URL patterns that trigger false positives
+URL_LOOP_ENABLE_WARNING="${URL_LOOP_ENABLE_WARNING:-true}"  # Enable URL loop warning box
+
+# MAX_URLS Notification Settings
+SEND_REPORT_ON_MAX_URLS_REACHED="${SEND_REPORT_ON_MAX_URLS_REACHED:-true}"  # Send notification when MAX_URLS is reached
+MAX_URLS_ADMIN_EMAIL="${MAX_URLS_ADMIN_EMAIL:-yoursupportmail@yourcompany.tld}"  # Email for MAX_URLS notifications
 
 # YouTube
 YOUTUBE_DOMAINS='youtube\.com|youtu\.be|youtube-nocookie\.com|yt\.be'
@@ -270,8 +323,10 @@ EXCLUDES=(
     "leaflet\.css"
     "acf-osm-leaflet\.css"
     "jquery\.mCustomScrollbar\.min\.css"
-    "jquery\.bxslider\.css"
     "https:\/\/(www\.)?linkedin\.com"
+    "jquery\.bxslider\.css"
+    "jquery\.mCustomScrollbar\.css"
+    "jquery\.fancybox\.css"
 )
 
 # Skip these rel types
@@ -318,6 +373,9 @@ declare -a ERROR_PARENT_LIST=()
 declare -a DYNAMIC_EXCLUDES=()
 declare -a REMAINING_ARGS=()
 declare -a EXCLUDED_URL_LIST=()  # Track excluded URLs for debug summary
+declare -a URL_LOOP_PATTERNS=()  # Track detected URL loop patterns
+declare -A URL_LOOP_EXAMPLES=()  # Examples of URLs with loops
+declare -a URL_LOOP_ALL_URLS=()  # All URLs where loops were detected
 
 # Counters
 TOTAL_URLS=0
@@ -328,6 +386,10 @@ ERRORS_FOUND=false
 YOUTUBE_URLS_CHECKED=0
 YOUTUBE_ERRORS=0
 CSS_ERRORS_FOUND=false  # Track if any errors were found in CSS files
+MAX_URLS_REACHED=false  # Track if MAX_URLS limit was reached
+MAX_URLS_CRAWLED_COUNT=0  # Number of URLs crawled when MAX_URLS was reached
+MAX_URLS_DISCOVERED_COUNT=0  # Number of URLs discovered when MAX_URLS was reached
+URL_LOOPS_DETECTED=false  # Track if URL loops were detected
 
 # Global domain for logging
 CURRENT_DOMAIN=""
@@ -356,6 +418,13 @@ LANG_CSS_NOTE=""
 LANG_PROTECTION_DETECTED=""
 LANG_PROTECTION_TITLE=""
 LANG_PROTECTION_TEXT=""
+LANG_MAX_URLS_SUBJECT=""
+LANG_MAX_URLS_TITLE=""
+LANG_MAX_URLS_TEXT=""
+LANG_URL_LOOP_TITLE=""
+LANG_URL_LOOP_TEXT=""
+LANG_URL_LOOP_SUBJECT_SUFFIX=""
+LANG_URL_LOOP_TABLE_HEADER=""
 
 #==============================================================================
 # Basic Functions
@@ -414,6 +483,10 @@ Options:
   --parallel N        Number of parallel workers (default: 20)
   --batch-size N      URLs per batch (default: 50)
   --debug             Enable debug output
+  --send-max-urls-report  Send email notification when MAX_URLS limit is reached
+  --max-urls-email EMAIL  Email address for MAX_URLS notifications
+  --disable-url-loop-warning  Disable URL loop detection warnings in reports
+  --exclude-protected-pages   Exclude protected pages from error reports
   -h, --help          Show this help
 
 Note: Options also support '=' syntax (e.g., --exclude=REGEX, --max-depth=5)
@@ -422,6 +495,7 @@ Examples:
   $(basename "$0") https://example.com - de admin@example.com --debug
   $(basename "$0") https://example.com - en admin@example.com --exclude "/api" --exclude "\.pdf$"
   $(basename "$0") https://example.com - en admin@example.com --max-urls=100 --parallel=5
+  $(basename "$0") https://example.com - de admin@example.com --disable-url-loop-warning
 EOF
 }
 
@@ -437,7 +511,9 @@ set_language_texts() {
                 "SUMMARY_TITLE" "DETAILS_TITLE" "DURATION" "TOTAL_URLS" "ERROR_URLS"
                 "DUPLICATE_ERRORS" "FALSE_POSITIVES" "YOUTUBE_CHECKED" "YOUTUBE_UNAVAILABLE"
                 "SUCCESS_RATE" "COLUMN_URL" "COLUMN_ERROR" "COLUMN_PARENT" "FOOTER_TEXT" "CSS_NOTE"
-                "PROTECTION_DETECTED" "PROTECTION_TITLE" "PROTECTION_TEXT")
+                "PROTECTION_DETECTED" "PROTECTION_TITLE" "PROTECTION_TEXT"
+                "MAX_URLS_SUBJECT" "MAX_URLS_TITLE" "MAX_URLS_TEXT"
+                "URL_LOOP_TITLE" "URL_LOOP_TEXT" "URL_LOOP_SUBJECT_SUFFIX" "URL_LOOP_TABLE_HEADER")
     
     # Dynamically set language variables
     for var in "${vars[@]}"; do
@@ -531,6 +607,32 @@ parse_arguments() {
                 ;;
             --batch-size=*)
                 BATCH_SIZE="${1#*=}"
+                shift
+                ;;
+            --send-max-urls-report)
+                SEND_REPORT_ON_MAX_URLS_REACHED="true"
+                shift
+                ;;
+            --max-urls-email)
+                # Handle --max-urls-email EMAIL (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    MAX_URLS_ADMIN_EMAIL="$1"
+                    shift
+                else
+                    die "Missing value for --max-urls-email parameter"
+                fi
+                ;;
+            --max-urls-email=*)
+                MAX_URLS_ADMIN_EMAIL="${1#*=}"
+                shift
+                ;;
+            --disable-url-loop-warning)
+                URL_LOOP_ENABLE_WARNING="false"
+                shift
+                ;;
+            --exclude-protected-pages)
+                INCLUDE_PROTECTED_IN_REPORT="false"
                 shift
                 ;;
             --debug)
@@ -995,8 +1097,8 @@ check_url_worker() {
     fi
 }
 
-export -f check_url_worker http_request_pooled create_curl_config normalize_url debug_message is_url_valid
-export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN EXCLUDE_PROTECTED_FROM_REPORT LANG_PROTECTION_DETECTED MAX_URL_LENGTH CSS_ERRORS_FOUND REDIRECT_CSS_ERRORS_TO_ADMIN YOUTUBE_MAX_RETRIES
+export -f check_url_worker http_request_pooled create_curl_config normalize_url debug_message is_url_valid is_url_in_scope
+export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CHECK_METHOD CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN INCLUDE_PROTECTED_IN_REPORT LANG_PROTECTION_DETECTED MAX_URL_LENGTH CSS_ERRORS_FOUND REDIRECT_CSS_ERRORS_TO_ADMIN YOUTUBE_MAX_RETRIES URL_LOOP_THRESHOLD URL_LOOP_MIN_SEGMENTS
 
 check_urls_parallel() {
     local base_url="$1"
@@ -1008,6 +1110,12 @@ check_urls_parallel() {
         # Apply MAX_URLS limit if set
         if [[ "$MAX_URLS" -ne -1 ]] && [[ ${#urls_to_check[@]} -ge "$MAX_URLS" ]]; then
             debug_message "Reached MAX_URLS limit ($MAX_URLS), stopping URL collection"
+            MAX_URLS_REACHED=true
+            if [[ "$MAX_URLS_CRAWLED_COUNT" -eq 0 ]]; then
+                # If not set during crawling, set it here during checking
+                MAX_URLS_CRAWLED_COUNT="${#urls_to_check[@]}"
+                MAX_URLS_DISCOVERED_COUNT="${#ALL_DISCOVERED[@]}"
+            fi
             break
         fi
         
@@ -1082,8 +1190,8 @@ check_urls_parallel() {
                 ;;
             PROTECTED_ERROR)
                 ((protected_count++))
-                # Only add to error list if not excluding protected pages
-                if [[ "$EXCLUDE_PROTECTED_FROM_REPORT" != "true" ]]; then
+                # Only add to error list if including protected pages
+                if [[ "$INCLUDE_PROTECTED_IN_REPORT" == "true" ]]; then
                     ERROR_URL_LIST+=("$url")
                     ERROR_TEXT_LIST+=("$status")
                     ERROR_PARENT_LIST+=("$parent")
@@ -1124,6 +1232,159 @@ check_urls_parallel() {
 }
 
 #==============================================================================
+# URL Loop Detection
+#==============================================================================
+
+detect_url_loops() {
+    local base_url="$1"
+    
+    debug_message "Checking for URL loop patterns"
+    
+    local loop_count=0
+    declare -A seen_patterns
+    declare -A pattern_examples
+    
+    for url in "${!ALL_DISCOVERED[@]}"; do
+        # Skip external URLs
+        is_url_in_scope "$url" "$base_url" || continue
+        
+        # Skip excluded URLs - respect both global and dynamic exclusions
+        if is_url_excluded "$url"; then
+            debug_message "Skipping excluded URL from loop detection: $url"
+            continue
+        fi
+        
+        # Remove domain and query parameters for analysis
+        local path="${url#*://}"
+        path="${path#*/}"
+        path="${path%%\?*}"
+        path="${path%%#*}"
+        
+        # Skip if path is too short
+        [[ -z "$path" ]] && continue
+        
+        # Split path into segments
+        IFS='/' read -ra segments <<< "$path"
+        
+        # Skip if not enough segments to check
+        [[ ${#segments[@]} -lt $URL_LOOP_MIN_SEGMENTS ]] && continue
+        
+        # Method 1: Check for consecutive repetitions of the same segment
+        local prev_segment=""
+        local repetition_count=1
+        local max_repetition=1
+        
+        for segment in "${segments[@]}"; do
+            if [[ "$segment" == "$prev_segment" ]] && [[ -n "$segment" ]]; then
+                ((repetition_count++))
+                [[ $repetition_count -gt $max_repetition ]] && max_repetition=$repetition_count
+            else
+                repetition_count=1
+            fi
+            prev_segment="$segment"
+        done
+        
+        # Method 2: Check for pattern repetitions (e.g., A/B/A/B/A/B)
+        # Check for 2-segment patterns
+        local pattern_found=false
+        if [[ ${#segments[@]} -ge 6 ]]; then  # Need at least 6 segments for 3x repetition of 2-segment pattern
+            for ((i=0; i<${#segments[@]}-5; i++)); do
+                local pattern="${segments[$i]}/${segments[$i+1]}"
+                local pattern_repeat_count=1
+                
+                # Check if pattern repeats
+                for ((j=i+2; j<${#segments[@]}-1; j+=2)); do
+                    if [[ "${segments[$j]}/${segments[$j+1]}" == "$pattern" ]]; then
+                        ((pattern_repeat_count++))
+                    else
+                        break
+                    fi
+                done
+                
+                if [[ $pattern_repeat_count -ge $URL_LOOP_THRESHOLD ]]; then
+                    pattern_found=true
+                    if [[ -z "${seen_patterns[$pattern]}" ]]; then
+                        seen_patterns["$pattern"]=1
+                        pattern_examples["$pattern"]="$url"
+                        debug_message "Found repeating pattern: $pattern (${pattern_repeat_count}x) in $url"
+                    fi
+                fi
+            done
+        fi
+        
+        # Method 3: Check for segments appearing excessively with suspicious patterns
+        # Only flag if the same segment appears multiple times in a way that suggests a loop
+        # (e.g., /a/b/a/c/a or /a/a/b/a - not just /a/b/c/a which is normal navigation)
+        declare -A segment_counts
+        declare -A segment_positions
+        
+        for i in "${!segments[@]}"; do
+            local segment="${segments[$i]}"
+            if [[ -n "$segment" ]]; then
+                ((segment_counts["$segment"]++))
+                segment_positions["$segment"]+="$i "
+            fi
+        done
+        
+        for segment in "${!segment_counts[@]}"; do
+            if [[ ${segment_counts[$segment]} -ge $URL_LOOP_THRESHOLD ]]; then
+                # Check if occurrences suggest a loop pattern
+                # Look for regular intervals or clustering
+                local positions=(${segment_positions[$segment]})
+                local is_suspicious=false
+                
+                # Check for regular intervals (like every 2 segments)
+                if [[ ${#positions[@]} -ge 3 ]]; then
+                    local interval=$((positions[1] - positions[0]))
+                    local regular_pattern=true
+                    
+                    for ((i=2; i<${#positions[@]}; i++)); do
+                        local curr_interval=$((positions[i] - positions[i-1]))
+                        if [[ $curr_interval -ne $interval ]] || [[ $interval -le 2 ]]; then
+                            regular_pattern=false
+                            break
+                        fi
+                    done
+                    
+                    [[ "$regular_pattern" == "true" ]] && [[ $interval -le 3 ]] && is_suspicious=true
+                fi
+                
+                # Only flag if it's actually suspicious
+                if [[ "$is_suspicious" == "true" ]]; then
+                    local pattern="Multiple '$segment'"
+                    if [[ -z "${seen_patterns[$pattern]}" ]]; then
+                        seen_patterns["$pattern"]=1
+                        pattern_examples["$pattern"]="$url"
+                        debug_message "Found suspicious repetition of segment '$segment' (${segment_counts[$segment]}x) in $url"
+                    fi
+                fi
+            fi
+        done
+        
+        # If any loop pattern detected, mark it and store the URL
+        if [[ $max_repetition -ge $URL_LOOP_THRESHOLD ]] || [[ "$pattern_found" == "true" ]] || [[ ${#seen_patterns[@]} -gt 0 ]]; then
+            ((loop_count++))
+            URL_LOOP_ALL_URLS+=("$url")
+        fi
+    done
+    
+    # Store detected patterns globally
+    if [[ $loop_count -gt 0 ]] || [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+        URL_LOOPS_DETECTED=true
+        log_message "Detected URL loops: $loop_count URLs with repetitive patterns"
+        
+        if [[ ${#seen_patterns[@]} -gt 0 ]]; then
+            for pattern in "${!seen_patterns[@]}"; do
+                URL_LOOP_PATTERNS+=("$pattern")
+                URL_LOOP_EXAMPLES["$pattern"]="${pattern_examples[$pattern]}"
+            done
+        fi
+    else
+        debug_message "No URL loop patterns detected"
+    fi
+}
+
+#==============================================================================
 # Optimized Crawling with Better Queue Management
 #==============================================================================
 
@@ -1151,6 +1412,9 @@ crawl_website() {
         # Check if we've reached the MAX_URLS limit before processing next URL
         if [[ "$MAX_URLS" -ne -1 && "$crawled" -ge "$MAX_URLS" ]]; then
             log_message "Reached MAX_URLS limit ($MAX_URLS), stopping crawl"
+            MAX_URLS_REACHED=true
+            MAX_URLS_CRAWLED_COUNT="$crawled"
+            MAX_URLS_DISCOVERED_COUNT="${#ALL_DISCOVERED[@]}"
             break
         fi
         
@@ -1476,6 +1740,14 @@ HTMLEOF
 HTMLEOF
     fi
     
+    # Add URL loop warning if detected (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        echo "<div class=\"info-box\" style=\"border-left-color: #f44336;\">"
+        echo "<h3>$LANG_URL_LOOP_TITLE</h3>"
+        echo "<p>$LANG_URL_LOOP_TEXT</p>"
+        echo "</div>"
+    fi
+    
     # Add CMS link section if provided
     if [[ "$cms_url" != "-" ]]; then
         echo "<div class=\"cms-section\">"
@@ -1569,16 +1841,24 @@ send_email() {
     local mailto="$1"
     local base_url="$2"
     local html="$3"
+    local subject_override="$4"  # Optional subject override
     
     local domain="${base_url#*://}"
     domain="${domain%%/*}"
+    
+    local subject="${subject_override:-$LANG_SUBJECT - $domain}"
+    
+    # Add URL loop warning to subject if detected (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ -z "$subject_override" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        subject="${subject}${LANG_URL_LOOP_SUBJECT_SUFFIX}"
+    fi
     
     log_message "Sending email to: $mailto"
     
     if (
         echo "To: $mailto"
         echo "From: $MAIL_SENDER_NAME <$MAIL_SENDER>"
-        echo "Subject: $LANG_SUBJECT - $domain"
+        echo "Subject: $subject"
         echo "Content-Type: text/html; charset=UTF-8"
         echo "MIME-Version: 1.0"
         echo ""
@@ -1590,6 +1870,108 @@ send_email() {
         error_message "Email failed"
         return 1
     fi
+}
+
+generate_max_urls_report() {
+    local base_url="$1"
+    local max_urls="$2"
+    local crawled_count="$3"
+    local discovered_count="$4"
+    
+    # Replace placeholders in text
+    local text=$(echo "$LANG_MAX_URLS_TEXT" | \
+        sed "s|###base_url###|<a href=\"$base_url\">$base_url</a>|g" | \
+        sed "s|###max_urls###|$max_urls|g" | \
+        sed "s|###crawled_count###|$crawled_count|g" | \
+        sed "s|###discovered_count###|$discovered_count|g")
+    
+    cat <<HTMLEOF
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>$LANG_MAX_URLS_SUBJECT</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f5f5f5}
+.container{max-width:1200px;margin:20px auto;background:white;padding:30px;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+.header{text-align:center;margin-bottom:30px}
+.logo{width:200px;height:auto;margin-bottom:20px}
+h1{color:#333;font-size:28px;font-weight:normal;text-align:center;margin:10px 0 30px 0}
+h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom:10px;margin:30px 0 20px 0}
+.warning-box{background:#fff3e0;padding:20px;border-left:4px solid #ff9800;margin-bottom:30px}
+.warning-box p{margin:0;color:#333;font-size:15px;line-height:1.6}
+.warning-box a{color:$THEME_COLOR;text-decoration:none}
+.warning-box a:hover{text-decoration:underline}
+.loop-warning-box{background:#ffebee;padding:20px;border-left:4px solid #f44336;margin-bottom:30px}
+.loop-warning-box h3{margin:0 0 10px 0;color:#c62828;font-size:18px;font-weight:bold}
+.loop-warning-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.loop-table{width:100%;border-collapse:collapse;margin-top:20px}
+.loop-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
+.loop-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
+.loop-table tbody tr:hover{background:#f5f5f5}
+.loop-table a{color:$THEME_COLOR;text-decoration:none;word-break:break-all}
+.loop-table a:hover{text-decoration:underline}
+.footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #e0e0e0;color:#999;font-size:12px}
+.footer p{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<img src="$LOGO_URL" alt="$LOGO_ALT" class="logo">
+<h1>$LANG_MAX_URLS_TITLE</h1>
+</div>
+<div class="warning-box">
+<p>$text</p>
+</div>
+HTMLEOF
+    
+    # Debug logging for troubleshooting
+    debug_message "MAX_URLS report: URL_LOOPS_DETECTED=$URL_LOOPS_DETECTED, URL_LOOP_ALL_URLS count=${#URL_LOOP_ALL_URLS[@]}, URL_LOOP_ENABLE_WARNING=$URL_LOOP_ENABLE_WARNING"
+    
+    # Add URL loop detection results if any loops were found (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        echo "<div class=\"loop-warning-box\">"
+        echo "<h3>$LANG_URL_LOOP_TITLE</h3>"
+        echo "<p>$LANG_URL_LOOP_TEXT</p>"
+        echo "</div>"
+        
+        # Create table with all URLs where loops were detected
+        echo "<h2>$LANG_URL_LOOP_TABLE_HEADER</h2>"
+        echo "<table class=\"loop-table\">"
+        echo "<thead>"
+        echo "<tr><th>URL</th></tr>"
+        echo "</thead>"
+        echo "<tbody>"
+        
+        # Sort loop URLs alphabetically for better readability
+        if [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+            debug_message "Displaying ${#URL_LOOP_ALL_URLS[@]} loop URLs in table"
+            IFS=$'\n' sorted_urls=($(printf '%s\n' "${URL_LOOP_ALL_URLS[@]}" | sort -u))
+            unset IFS
+            
+            # Display sorted URLs
+            for url in "${sorted_urls[@]}"; do
+                echo "<tr><td><a href=\"$url\">$url</a></td></tr>"
+            done
+        else
+            debug_message "No loop URLs to display in table"
+            echo "<tr><td>No specific loop URLs collected</td></tr>"
+        fi
+        
+        echo "</tbody>"
+        echo "</table>"
+    fi
+    
+    cat <<HTMLEOF
+<div class="footer">
+<p>$LANG_FOOTER_TEXT v$SCRIPT_VERSION</p>
+<p>$(date '+%d.%m.%Y %H:%M:%S')</p>
+</div>
+</div>
+</body>
+</html>
+HTMLEOF
 }
 
 #==============================================================================
@@ -1673,10 +2055,31 @@ main() {
     debug_message "=== Phase 3: YouTube ==="
     check_youtube_videos_parallel
     
+    # URL Loop Detection
+    debug_message "=== Phase 4: URL Loop Detection ==="
+    detect_url_loops "$base_url"
+    
     CHECK_DURATION=$(($(date +%s) - start_time))
     
     # Display excluded URLs summary before generating report
     display_excluded_urls_summary
+    
+    # Check if MAX_URLS was reached and send notification if configured
+    if [[ "$MAX_URLS_REACHED" == "true" ]] && [[ "$SEND_REPORT_ON_MAX_URLS_REACHED" == "true" ]]; then
+        log_message "Sending MAX_URLS notification to: $MAX_URLS_ADMIN_EMAIL"
+        local max_urls_report=$(generate_max_urls_report "$base_url" "$MAX_URLS" "$MAX_URLS_CRAWLED_COUNT" "$MAX_URLS_DISCOVERED_COUNT")
+        
+        local domain="${base_url#*://}"
+        domain="${domain%%/*}"
+        local max_urls_subject="$LANG_MAX_URLS_SUBJECT - $domain"
+        
+        # Add URL loop warning to subject if detected (if enabled)
+        if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+            max_urls_subject="${max_urls_subject}${LANG_URL_LOOP_SUBJECT_SUFFIX}"
+        fi
+        
+        send_email "$MAX_URLS_ADMIN_EMAIL" "$base_url" "$max_urls_report" "$max_urls_subject"
+    fi
     
     if [[ "$ERRORS_FOUND" != "true" ]]; then
         log_message "No errors found"
