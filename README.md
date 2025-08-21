@@ -56,6 +56,9 @@ A professional website link validation system built in Bash that overcomes moder
 ### Required Software
 
 **curl-impersonate-chrome** (Essential for protection bypass):
+
+_Grab it straight from the original repository or snag our version right here — if you’re feeling brave enough and trust us! 😄_
+
 ```bash
 # Download and install curl-impersonate
 wget https://github.com/lwthiker/curl-impersonate/releases/latest/download/curl-impersonate-chrome-linux-x86_64.tar.gz
