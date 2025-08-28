@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Ensure the script runs with bash even if invoked via sh
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec /bin/bash "$0" "$@"
+fi
+
 #==============================================================================
 # LEXO Website Linkchecker Script - Comprehensive Website Health Monitor
 #==============================================================================
@@ -188,7 +193,7 @@ LANG_DE_MAX_URLS_TEXT="Die automatische Überprüfung Ihrer Webseite ###base_url
 LANG_DE_URL_LOOP_TITLE="Achtung: Mögliche URL-Endlosschleife erkannt!"
 LANG_DE_URL_LOOP_TEXT="Auf Ihrer Webseite wurden URLs mit sich wiederholenden Mustern gefunden. Dies deutet auf ein technisches Problem hin, bei dem sich Links immer wieder selbst aufrufen, oder auf eine für Suchmaschinen (SEO) ungünstige Linkstruktur.<br><br><strong>Was bedeutet das für Sie?</strong><br>• Ihre Webseite könnte für Besucher verwirrend sein<br>• Suchmaschinen (wie Google) könnten Ihre Seite schlechter bewerten<br>• Die Webseite könnte langsamer werden<br>• Ihr Suchmaschinen-Ranking könnte sich verschlechtern<br><br><strong>Was sollten Sie tun?</strong><br>Überprüfen Sie die unten aufgelisteten URLs und passen Sie die Linkstruktur Ihrer Webseite an. Das Problem sollte zeitnah behoben werden, um die Funktionalität und Sichtbarkeit Ihrer Webseite zu gewährleisten. Bei Fragen können Sie sich gerne an uns wenden."
 LANG_DE_URL_LOOP_SUBJECT_SUFFIX=" - Potenzielle URL-Endlosschleife erkannt"
-LANG_DE_URL_LOOP_TABLE_HEADER="URLs mit erkannten Schleifen"
+LANG_DE_URL_LOOP_TABLE_HEADER="URLs mit wiederholendem Muster"
 
 #==============================================================================
 # LANGUAGE TEMPLATES - ENGLISH
@@ -315,18 +320,21 @@ EXCLUDES=(
     "\/feed\/"
     "\?p=[0-9]+"
     "bootstrap\.min\.css"
-    "googletagmanager\.com\/gtag\/js"
-    "google\.com\/recaptcha\/api\.js"
-    "google\.com\/maps"
+    "googletagmanager\.com"
+    "(google\.com|goo\.gl)\/(recaptcha|maps)"
     "bootstrap\.css"
     "bootstrap\.min\.css"
     "leaflet\.css"
     "acf-osm-leaflet\.css"
-    "jquery\.mCustomScrollbar\.min\.css"
+    "owl\.carousel\.css"
+    "advanced-slider-base\.css"
     "https:\/\/(www\.)?linkedin\.com"
     "jquery\.bxslider\.css"
     "jquery\.mCustomScrollbar\.css"
     "jquery\.fancybox\.css"
+    "jquery\.fancybox-buttons\.css"
+    "jquery\.mCustomScrollbar\.min\.css"
+    "jquery-ui\.css"
 )
 
 # Skip these rel types
@@ -1710,6 +1718,15 @@ h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom
 .info-box{background:#f0f0f0;padding:20px;border-radius:5px;margin:30px 0;border-left:4px solid #999}
 .info-box h3{margin:0 0 10px 0;color:#333;font-size:16px;font-weight:bold}
 .info-box p{margin:0;color:#555;font-size:14px;line-height:1.5}
+.loop-warning-box{background:#ffebee;padding:20px;border-left:4px solid #f44336;margin:30px 0;border-radius:5px}
+.loop-warning-box h3{margin:0 0 10px 0;color:#c62828;font-size:18px;font-weight:bold}
+.loop-warning-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.loop-table{width:100%;border-collapse:collapse;margin-top:20px}
+.loop-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
+.loop-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
+.loop-table tbody tr:hover{background:#f5f5f5}
+.loop-table a{color:$THEME_COLOR;text-decoration:none;word-break:break-all}
+.loop-table a:hover{text-decoration:underline}
 .footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #e0e0e0;color:#999;font-size:12px}
 .footer p{margin:5px 0}
 </style>
@@ -1740,12 +1757,27 @@ HTMLEOF
 HTMLEOF
     fi
     
-    # Add URL loop warning if detected (if enabled)
+    # Add URL loop warning and list if detected (if enabled)
     if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
-        echo "<div class=\"info-box\" style=\"border-left-color: #f44336;\">"
+        echo "<div class=\"loop-warning-box\">"
         echo "<h3>$LANG_URL_LOOP_TITLE</h3>"
         echo "<p>$LANG_URL_LOOP_TEXT</p>"
         echo "</div>"
+
+        # Show separated list of looping URLs
+        if [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+            echo "<h2>$LANG_URL_LOOP_TABLE_HEADER</h2>"
+            echo "<table class=\"loop-table\">"
+            echo "<thead><tr><th>URL</th></tr></thead>"
+            echo "<tbody>"
+            IFS=$'\n' sorted_urls=($(printf '%s\n' "${URL_LOOP_ALL_URLS[@]}" | sort -u))
+            unset IFS
+            for url in "${sorted_urls[@]}"; do
+                echo "<tr><td><a href=\"$url\">$url</a></td></tr>"
+            done
+            echo "</tbody>"
+            echo "</table>"
+        fi
     fi
     
     # Add CMS link section if provided
@@ -2106,7 +2138,14 @@ main() {
 }
 
 # Entry
-[[ "${1:-}" =~ ^(-h|--help)$ ]] && { show_usage; exit 0; }
-[[ $# -eq 0 ]] && { show_usage; exit 1; }
+if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    show_usage
+    exit 0
+fi
+
+if [[ $# -eq 0 ]]; then
+    show_usage
+    exit 1
+fi
 
 main "$@"

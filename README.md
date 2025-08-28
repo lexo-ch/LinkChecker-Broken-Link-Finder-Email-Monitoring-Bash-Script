@@ -1,6 +1,18 @@
-# LEXO Website Linkchecker v2.5
+# LEXO Website Linkchecker v2.6
 
 A professional website link validation system built in Bash that overcomes modern web protection mechanisms. Features intelligent crawling, parallel processing, and sophisticated HTML email reporting with white-label branding capabilities.
+
+## 🚀 What's New in v2.6
+
+### Dedicated Looping URLs Section in Reports
+- Adds a separate, pastel-red section in the main HTML report when URL loops are detected
+- Includes a dedicated table listing all detected loop URLs, sorted and deduplicated
+- Localized header uses existing language strings (e.g., “URLs mit wiederholendem Muster” in German)
+
+### Robust Shell Execution (Fixes “unexpected ‘}’”)
+- Ensures the script always runs under bash even if invoked via `sh`
+- Replaces brace-group one-liners at entry with explicit `if`/`fi` blocks
+- Prevents intermittent parse errors observed when cron or wrappers run the script with `/bin/sh`
 
 ## 🚀 What's New in v2.5
 
