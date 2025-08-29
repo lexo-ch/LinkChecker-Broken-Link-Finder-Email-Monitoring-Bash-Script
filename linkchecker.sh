@@ -142,7 +142,7 @@ fi
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.5"
+SCRIPT_VERSION="2.6.1"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -1410,7 +1410,7 @@ crawl_website() {
     local queue_file="/tmp/crawl_queue_$$"
     local visited_file="/tmp/crawl_visited_$$"
     
-    echo "$base_url|0|" > "$queue_file"
+    echo "$base_url|0|$base_url" > "$queue_file"
     touch "$visited_file"
     
     local crawled=0
@@ -1841,7 +1841,12 @@ HTMLEOF
             fi
             
             echo "<tr$row_class>"
-            echo "<td><a href=\"$parent\">$parent</a></td>"
+            # Handle empty or self-referencing parent URLs
+            if [[ -z "$parent" ]] || [[ "$parent" == "$url" ]]; then
+                echo "<td>-</td>"
+            else
+                echo "<td><a href=\"$parent\">$parent</a></td>"
+            fi
             echo "<td class=\"error-text\">$error</td>"
             echo "<td><a href=\"$url\">$url</a></td>"
             echo "</tr>"
