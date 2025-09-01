@@ -142,7 +142,7 @@ fi
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.6.1"
+SCRIPT_VERSION="2.6.2"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -1689,14 +1689,10 @@ body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f5f5f5}
 .header{text-align:center;margin-bottom:30px}
 .logo{width:200px;height:auto;margin-bottom:20px}
 h1{color:#333;font-size:28px;font-weight:normal;text-align:center;margin:10px 0 30px 0}
-.intro-box{background:#f0f4f8;padding:20px;border-left:4px solid $THEME_COLOR;margin-bottom:30px}
+.intro-box{background:#f0f4f8;padding:20px;border-left:4px solid $THEME_COLOR;margin-bottom:30px;border-radius:5px}
 .intro-box p{margin:0;color:#333;font-size:15px}
 .intro-box a{color:$THEME_COLOR;text-decoration:none}
 .intro-box a:hover{text-decoration:underline}
-.cms-section{background:#e8f4fd;padding:15px;border-radius:3px;margin-bottom:30px}
-.cms-section h2{color:#2c5282;font-size:16px;margin:0 0 10px 0;font-weight:bold}
-.cms-section p{margin:0;color:#333}
-.cms-section a{color:$THEME_COLOR;text-decoration:none;font-weight:bold}
 h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom:10px;margin:30px 0 20px 0}
 .stats-table{width:100%;border-collapse:collapse;margin-bottom:30px}
 .stats-table tr{border-bottom:1px solid #e0e0e0}
@@ -1718,6 +1714,11 @@ h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom
 .info-box{background:#f0f0f0;padding:20px;border-radius:5px;margin:30px 0;border-left:4px solid #999}
 .info-box h3{margin:0 0 10px 0;color:#333;font-size:16px;font-weight:bold}
 .info-box p{margin:0;color:#555;font-size:14px;line-height:1.5}
+.cms-box{background:#e3f2fd;padding:20px;border-radius:5px;margin:20px 0;border-left:4px solid #2196f3}
+.cms-box h2{margin:0 0 10px 0;color:#1565c0;font-size:16px;font-weight:bold}
+.cms-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.cms-box a{color:#1976d2;text-decoration:none;font-weight:500}
+.cms-box a:hover{text-decoration:underline}
 .loop-warning-box{background:#ffebee;padding:20px;border-left:4px solid #f44336;margin:30px 0;border-radius:5px}
 .loop-warning-box h3{margin:0 0 10px 0;color:#c62828;font-size:18px;font-weight:bold}
 .loop-warning-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
@@ -1746,6 +1747,15 @@ HTMLEOF
     cat <<'HTMLEOF'
 </div>
 HTMLEOF
+    
+    # Add CMS link section right after intro if provided
+    if [[ "$cms_url" != "-" ]]; then
+        echo "<div class=\"cms-box\">"
+        echo "<h2>$LANG_CMS_TITLE</h2>"
+        local cms_text=$(replace_placeholders "$LANG_CMS_TEXT" "" "<a href=\"$cms_url\">$cms_url</a>")
+        echo "<p>$cms_text</p>"
+        echo "</div>"
+    fi
     
     # Add CSS error notice if report was redirected
     if [[ "$CSS_ERRORS_FOUND" == "true" ]] && [[ "$REDIRECT_CSS_ERRORS_TO_ADMIN" == "true" ]]; then
@@ -1778,15 +1788,6 @@ HTMLEOF
             echo "</tbody>"
             echo "</table>"
         fi
-    fi
-    
-    # Add CMS link section if provided
-    if [[ "$cms_url" != "-" ]]; then
-        echo "<div class=\"cms-section\">"
-        echo "<h2>$LANG_CMS_TITLE</h2>"
-        local cms_text=$(replace_placeholders "$LANG_CMS_TEXT" "" "<a href=\"$cms_url\">$cms_url</a>")
-        echo "<p>$cms_text</p>"
-        echo "</div>"
     fi
     
     # Summary section with comprehensive statistics
