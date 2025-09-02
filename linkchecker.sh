@@ -142,7 +142,7 @@ fi
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.6.2"
+SCRIPT_VERSION="2.6.3"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -1329,7 +1329,12 @@ detect_url_loops() {
         for i in "${!segments[@]}"; do
             local segment="${segments[$i]}"
             if [[ -n "$segment" ]]; then
-                ((segment_counts["$segment"]++))
+                # Use a safer method to increment the counter to handle special characters
+                if [[ -v segment_counts["$segment"] ]]; then
+                    segment_counts["$segment"]=$((segment_counts["$segment"] + 1))
+                else
+                    segment_counts["$segment"]=1
+                fi
                 segment_positions["$segment"]+="$i "
             fi
         done
