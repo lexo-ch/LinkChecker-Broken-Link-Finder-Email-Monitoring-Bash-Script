@@ -133,7 +133,6 @@ fi
 # 5. Compliance Monitoring: Ensuring website accessibility and functionality
 #
 # Author:   LEXO
-# Date:     2025-08-18
 #==============================================================================
 
 #==============================================================================
@@ -142,7 +141,7 @@ fi
 # Change these values to customize the script for your organization
 
 SCRIPT_NAME="YOURCOMPANY Linkchecker"
-SCRIPT_VERSION="2.6.3"
+SCRIPT_VERSION="2.6.4"
 LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
 LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
 MAIL_SENDER="support@yourcompany.tld"
@@ -478,32 +477,87 @@ show_usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
 
-Parameters:
+REQUIRED PARAMETERS:
   base_url        Base URL to check (e.g., https://www.example.com)
   cms_login_url   CMS login URL or "-" if none
-  language        Report language: de or en
+  language        Report language: de (German) or en (English)
   mailto          Email addresses (comma-separated)
 
-Options:
-  --exclude REGEX     Add exclude pattern (can use multiple times)
-  --max-depth N       Maximum crawl depth (default: unlimited)
-  --max-urls N        Maximum URLs to check (default: unlimited)
-  --parallel N        Number of parallel workers (default: 20)
-  --batch-size N      URLs per batch (default: 50)
-  --debug             Enable debug output
-  --send-max-urls-report  Send email notification when MAX_URLS limit is reached
-  --max-urls-email EMAIL  Email address for MAX_URLS notifications
-  --disable-url-loop-warning  Disable URL loop detection warnings in reports
-  --exclude-protected-pages   Exclude protected pages from error reports
-  -h, --help          Show this help
+COMMAND LINE OPTIONS:
+  --exclude REGEX             Add exclude pattern (can use multiple times)
+                             Patterns are regex, e.g.: "/api", "\.pdf$", "^/test"
+  --max-depth N              Maximum crawl depth (default: 50)
+  --max-urls N               Maximum URLs to check (default: 5000)
+  --parallel N               Number of parallel workers (default: 20)
+  --batch-size N             URLs per batch (default: 50)
+  --debug                    Enable debug output
+  --send-max-urls-report     Send email notification when MAX_URLS limit is reached
+  --max-urls-email EMAIL     Email address for MAX_URLS notifications
+  --disable-url-loop-warning Disable URL loop detection warnings in reports
+  --exclude-protected-pages  Exclude protected pages from error reports
+  -h, --help                 Show this help
 
-Note: Options also support '=' syntax (e.g., --exclude=REGEX, --max-depth=5)
+ENVIRONMENT VARIABLES (optional):
+  Core Settings:
+    LOG_FILE                    Log file path (default: /var/log/linkchecker.log)
+    DEBUG                       Enable debug mode: true/false (default: false)
+    PARALLEL_WORKERS            Number of parallel URL checks (default: 20)
+    BATCH_SIZE                  URLs to process per batch (default: 50)
+    CONNECTION_CACHE_SIZE       Curl connection cache size (default: 10000)
+  
+  URL Configuration:
+    MAX_DEPTH                   Maximum crawl depth (default: 50)
+    MAX_URLS                    Maximum URLs to check (default: 5000)
+    MAX_URL_LENGTH              Maximum URL length to process (default: 2000)
+    REQUEST_DELAY               Delay between requests in seconds (default: 0)
+    CHECK_METHOD                Initial check method: HEAD or GET (default: HEAD)
+  
+  URL Loop Detection:
+    URL_LOOP_THRESHOLD          Repetitions to consider as loop (default: 2)
+    URL_LOOP_MIN_SEGMENTS       Minimum URL segments to check for loops (default: 2)
+    URL_LOOP_ENABLE_WARNING     Enable URL loop warnings: true/false (default: true)
+  
+  Error Handling:
+    INCLUDE_PROTECTED_IN_REPORT Include protected pages: true/false (default: true)
+    REDIRECT_CSS_ERRORS_TO_ADMIN Redirect CSS error reports: true/false (default: true)
+    CSS_ERROR_ADMIN_EMAIL       Admin email for CSS errors
+    SEND_REPORT_ON_MAX_URLS_REACHED Send MAX_URLS notification: true/false (default: true)
+    MAX_URLS_ADMIN_EMAIL        Email for MAX_URLS notifications
+  
+  External Services:
+    YOUTUBE_MAX_RETRIES         Max retry attempts for YouTube (default: 3)
+    CURL_IMPERSONATE_BINARY     Path to curl-impersonate (default: ./curl/curl-impersonate-chrome)
+    CURL_TIMEOUT                Connection timeout seconds (default: 15)
+    CURL_MAX_REDIRECTS          Maximum redirects to follow (default: 10)
+  
+  Email & Branding:
+    MAIL_SENDER                 Email sender address
+    MAIL_SENDER_NAME            Email sender name
+    SENDMAIL_BINARY             Path to sendmail (default: /usr/sbin/sendmail)
+    LOGO_URL                    Logo URL for reports
+    LOGO_ALT                    Logo alt text
+    THEME_COLOR                 Theme color for reports (default: #832883)
 
-Examples:
-  $(basename "$0") https://example.com - de admin@example.com --debug
-  $(basename "$0") https://example.com - en admin@example.com --exclude "/api" --exclude "\.pdf$"
-  $(basename "$0") https://example.com - en admin@example.com --max-urls=100 --parallel=5
-  $(basename "$0") https://example.com - de admin@example.com --disable-url-loop-warning
+NOTE: 
+  - Options support '=' syntax (e.g., --exclude=REGEX, --max-depth=5)
+  - Environment variables override defaults but are overridden by command line options
+  - Requires curl-impersonate binary to bypass bot protection
+
+EXAMPLES:
+  Basic usage:
+    $(basename "$0") https://example.com - de admin@example.com
+  
+  With exclusions and debug:
+    $(basename "$0") https://example.com - en admin@example.com \\
+      --debug --exclude "/api" --exclude "\.pdf$"
+  
+  With limits and parallel control:
+    $(basename "$0") https://example.com - en admin@example.com \\
+      --max-urls=1000 --parallel=10 --batch-size=25
+  
+  Using environment variables:
+    DEBUG=true MAX_URLS=1000 REQUEST_DELAY=1 \\
+      $(basename "$0") https://example.com - en admin@example.com
 EOF
 }
 
@@ -1249,8 +1303,9 @@ detect_url_loops() {
     debug_message "Checking for URL loop patterns"
     
     local loop_count=0
-    declare -A seen_patterns
-    declare -A pattern_examples
+    # Global patterns tracking - only for actual loops found
+    declare -A global_patterns
+    declare -A global_pattern_examples
     
     for url in "${!ALL_DISCOVERED[@]}"; do
         # Skip external URLs
@@ -1277,7 +1332,17 @@ detect_url_loops() {
         # Skip if not enough segments to check
         [[ ${#segments[@]} -lt $URL_LOOP_MIN_SEGMENTS ]] && continue
         
-        # Method 1: Check for consecutive repetitions of the same segment
+        # Track if THIS SPECIFIC URL has a loop pattern
+        local url_has_loop=false
+        
+        # Method 1: Check for CONSECUTIVE repetitions of the same segment
+        # Examples that SHOULD be flagged:
+        #   /products/products/ (same segment repeated consecutively)
+        #   /home/home/home/ (same segment repeated 3x consecutively)
+        #   /api/v1/v1/endpoint (v1 repeated consecutively)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/4305/ (different segments)
+        #   /products/category/products/ (products appears twice but not consecutively)
         local prev_segment=""
         local repetition_count=1
         local max_repetition=1
@@ -1292,16 +1357,29 @@ detect_url_loops() {
             prev_segment="$segment"
         done
         
-        # Method 2: Check for pattern repetitions (e.g., A/B/A/B/A/B)
-        # Check for 2-segment patterns
+        if [[ $max_repetition -ge $URL_LOOP_THRESHOLD ]]; then
+            url_has_loop=true
+            debug_message "Method 1: Found consecutive repetition in $url (${max_repetition}x)"
+        fi
+        
+        # Method 2: Check for REPEATING PATTERNS of 2+ segments
+        # Examples that SHOULD be flagged:
+        #   /about/services/about/services/ (pattern "about/services" repeats)
+        #   /api/v1/users/api/v1/users/ (pattern "api/v1/users" repeats)
+        #   /a/b/a/b/a/b/ (pattern "a/b" repeats 3 times)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/4305/ (no repeating multi-segment pattern)
+        #   /products/category/items/ (no pattern repetition)
         local pattern_found=false
-        if [[ ${#segments[@]} -ge 6 ]]; then  # Need at least 6 segments for 3x repetition of 2-segment pattern
-            for ((i=0; i<${#segments[@]}-5; i++)); do
-                local pattern="${segments[$i]}/${segments[$i+1]}"
-                local pattern_repeat_count=1
-                
-                # Check if pattern repeats
-                for ((j=i+2; j<${#segments[@]}-1; j+=2)); do
+        if [[ ${#segments[@]} -ge 4 ]]; then  # Need at least 4 segments for 2x repetition of 2-segment pattern
+            for ((i=0; i<=((${#segments[@]}-4)); i++)); do
+                # Try 2-segment patterns
+                if [[ $((i+3)) -lt ${#segments[@]} ]]; then
+                    local pattern="${segments[$i]}/${segments[$i+1]}"
+                    local pattern_repeat_count=1
+                    
+                    # Check if pattern repeats immediately after
+                    for ((j=i+2; j<${#segments[@]}-1; j+=2)); do
                     if [[ "${segments[$j]}/${segments[$j+1]}" == "$pattern" ]]; then
                         ((pattern_repeat_count++))
                     else
@@ -1309,27 +1387,37 @@ detect_url_loops() {
                     fi
                 done
                 
-                if [[ $pattern_repeat_count -ge $URL_LOOP_THRESHOLD ]]; then
-                    pattern_found=true
-                    if [[ -z "${seen_patterns[$pattern]}" ]]; then
-                        seen_patterns["$pattern"]=1
-                        pattern_examples["$pattern"]="$url"
-                        debug_message "Found repeating pattern: $pattern (${pattern_repeat_count}x) in $url"
+                    if [[ $pattern_repeat_count -ge $URL_LOOP_THRESHOLD ]]; then
+                        pattern_found=true
+                        url_has_loop=true
+                        debug_message "Method 2: Found repeating pattern '$pattern' (${pattern_repeat_count}x) in $url"
+                        
+                        # Store in global patterns only if it's a real loop
+                        if [[ -z "${global_patterns[$pattern]}" ]]; then
+                            global_patterns["$pattern"]=1
+                            global_pattern_examples["$pattern"]="$url"
+                        fi
+                        break
                     fi
                 fi
             done
         fi
         
-        # Method 3: Check for segments appearing excessively with suspicious patterns
-        # Only flag if the same segment appears multiple times in a way that suggests a loop
-        # (e.g., /a/b/a/c/a or /a/a/b/a - not just /a/b/c/a which is normal navigation)
-        declare -A segment_counts
-        declare -A segment_positions
+        # Method 3: Check for SAME SEGMENT appearing multiple times at REGULAR intervals
+        # Examples that SHOULD be flagged:
+        #   /api/users/api/posts/api/comments/ (api appears every 2 segments)
+        #   /v1/data/v1/users/v1/posts/ (v1 appears at regular intervals)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/an-ruhiger-lage/ (segments appear only once)
+        #   /home/products/services/home/ (home appears twice but not at regular intervals)
+        # IMPORTANT: Clear arrays for EACH URL to avoid cross-contamination
+        unset segment_counts segment_positions
+        declare -A segment_counts=()
+        declare -A segment_positions=()
         
         for i in "${!segments[@]}"; do
             local segment="${segments[$i]}"
             if [[ -n "$segment" ]]; then
-                # Use a safer method to increment the counter to handle special characters
                 if [[ -v segment_counts["$segment"] ]]; then
                     segment_counts["$segment"]=$((segment_counts["$segment"] + 1))
                 else
@@ -1340,56 +1428,54 @@ detect_url_loops() {
         done
         
         for segment in "${!segment_counts[@]}"; do
+            # Only check segments that appear multiple times
             if [[ ${segment_counts[$segment]} -ge $URL_LOOP_THRESHOLD ]]; then
-                # Check if occurrences suggest a loop pattern
-                # Look for regular intervals or clustering
                 local positions=(${segment_positions[$segment]})
                 local is_suspicious=false
                 
-                # Check for regular intervals (like every 2 segments)
-                if [[ ${#positions[@]} -ge 3 ]]; then
-                    local interval=$((positions[1] - positions[0]))
-                    local regular_pattern=true
+                # Check for REGULAR intervals (suggesting automated/looping generation)
+                if [[ ${#positions[@]} -ge $URL_LOOP_THRESHOLD ]]; then
+                    # Calculate intervals between appearances
+                    local first_interval=$((positions[1] - positions[0]))
+                    local has_regular_pattern=true
                     
+                    # Check if all intervals are the same AND small (<=3)
                     for ((i=2; i<${#positions[@]}; i++)); do
                         local curr_interval=$((positions[i] - positions[i-1]))
-                        if [[ $curr_interval -ne $interval ]] || [[ $interval -le 2 ]]; then
-                            regular_pattern=false
+                        # Intervals must be consistent AND reasonably small to be suspicious
+                        if [[ $curr_interval -ne $first_interval ]] || [[ $first_interval -gt 3 ]]; then
+                            has_regular_pattern=false
                             break
                         fi
                     done
                     
-                    [[ "$regular_pattern" == "true" ]] && [[ $interval -le 3 ]] && is_suspicious=true
-                fi
-                
-                # Only flag if it's actually suspicious
-                if [[ "$is_suspicious" == "true" ]]; then
-                    local pattern="Multiple '$segment'"
-                    if [[ -z "${seen_patterns[$pattern]}" ]]; then
-                        seen_patterns["$pattern"]=1
-                        pattern_examples["$pattern"]="$url"
-                        debug_message "Found suspicious repetition of segment '$segment' (${segment_counts[$segment]}x) in $url"
+                    # Only flag if intervals are regular AND small (indicating a loop pattern)
+                    if [[ "$has_regular_pattern" == "true" ]] && [[ $first_interval -le 3 ]] && [[ $first_interval -gt 0 ]]; then
+                        is_suspicious=true
+                        url_has_loop=true
+                        debug_message "Method 3: Found suspicious regular repetition of '$segment' every $first_interval segments in $url"
                     fi
                 fi
             fi
         done
         
-        # If any loop pattern detected, mark it and store the URL
-        if [[ $max_repetition -ge $URL_LOOP_THRESHOLD ]] || [[ "$pattern_found" == "true" ]] || [[ ${#seen_patterns[@]} -gt 0 ]]; then
+        # Only add this URL to the loop list if it actually has a loop pattern
+        if [[ "$url_has_loop" == "true" ]]; then
             ((loop_count++))
             URL_LOOP_ALL_URLS+=("$url")
         fi
     done
     
-    # Store detected patterns globally
-    if [[ $loop_count -gt 0 ]] || [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+    # Set global detection flag based on actual loops found
+    if [[ $loop_count -gt 0 ]]; then
         URL_LOOPS_DETECTED=true
         log_message "Detected URL loops: $loop_count URLs with repetitive patterns"
         
-        if [[ ${#seen_patterns[@]} -gt 0 ]]; then
-            for pattern in "${!seen_patterns[@]}"; do
+        # Store global patterns if any were found
+        if [[ ${#global_patterns[@]} -gt 0 ]]; then
+            for pattern in "${!global_patterns[@]}"; do
                 URL_LOOP_PATTERNS+=("$pattern")
-                URL_LOOP_EXAMPLES["$pattern"]="${pattern_examples[$pattern]}"
+                URL_LOOP_EXAMPLES["$pattern"]="${global_pattern_examples[$pattern]}"
             done
         fi
     else
