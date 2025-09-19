@@ -64,27 +64,6 @@ A professional, modular website link validation system built in Bash that overco
 7. **Version Control Friendly**: Changes isolated to specific modules
 8. **Extensibility**: New features can be added without core changes
 
-## 🚀 Previous Version Features (Retained from v2.6)
-
-### v2.6 - Loop Detection & Robust Execution
-- Dedicated looping URLs section in reports with pastel-red highlighting
-- Robust shell execution preventing "unexpected '}'" errors
-- Ensures bash execution even when invoked via `sh`
-
-### v2.5 - Infinite Loop Detection & Prevention
-- URL Loop Detection with pattern analysis
-- Smart Pattern Recognition for consecutive and pattern repetitions
-- MAX_URLS Email Notifications with detailed reports
-- Configurable Thresholds for loop detection sensitivity
-- Extended CLI Options for protection page handling
-
-### v2.4 - Enhanced URL Detection & Validation
-- Custom HTML Attributes Support (data-href, ng-href, etc.)
-- Intelligent URL Validation with pattern filtering
-- Smart HTTP Method Selection (GET/HEAD)
-- CSS Error Detection & Routing to administrators
-- YouTube Retry Logic with exponential backoff
-- Enhanced Protection Detection for CDN/WAF
 
 ## ✨ Core Features
 
@@ -660,7 +639,7 @@ curl -X POST https://hooks.slack.com/... -d "Linkcheck completed for example.com
 - 🔧 **Better Arguments**: Support for --option=value syntax
 - 🎨 **Code Quality**: 90% reduction in function size
 
-### v2.6.4 (Latest Stable) - Loop Detection & Stability
+### v2.6.4 - Loop Detection & Stability
 - 🔄 **Dedicated Loop Section**: Pastel-red highlighting in reports
 - 🛡️ **Shell Robustness**: Prevents "unexpected '}'" errors
 - 📊 **Loop Detection Tables**: Sorted and deduplicated loop URLs
@@ -681,6 +660,26 @@ curl -X POST https://hooks.slack.com/... -d "Linkcheck completed for example.com
 - 🛡️ **Smart HTTP Methods**: Optimized HEAD/GET
 - 🔍 **URL Validation Engine**: Malformed URL detection
 - 📊 **Debug Enhancements**: Pattern-grouped summaries
+
+### v2.6 - Loop Detection & Robust Execution
+- Dedicated looping URLs section in reports with pastel-red highlighting
+- Robust shell execution preventing "unexpected '}'" errors
+- Ensures bash execution even when invoked via `sh`
+
+### v2.5 - Infinite Loop Detection & Prevention
+- URL Loop Detection with pattern analysis
+- Smart Pattern Recognition for consecutive and pattern repetitions
+- MAX_URLS Email Notifications with detailed reports
+- Configurable Thresholds for loop detection sensitivity
+- Extended CLI Options for protection page handling
+
+### v2.4 - Enhanced URL Detection & Validation
+- Custom HTML Attributes Support (data-href, ng-href, etc.)
+- Intelligent URL Validation with pattern filtering
+- Smart HTTP Method Selection (GET/HEAD)
+- CSS Error Detection & Routing to administrators
+- YouTube Retry Logic with exponential backoff
+- Enhanced Protection Detection for CDN/WAF
 
 ### Previous Versions
 - v2.0: curl-impersonate integration, parallel processing
