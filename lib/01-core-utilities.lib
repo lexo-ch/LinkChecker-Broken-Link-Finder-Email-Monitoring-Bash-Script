@@ -1,0 +1,430 @@
+# 01-core-utilities.lib - Core Utility Functions
+handle_interrupt() {
+    if [[ "$INTERRUPTED" == "false" ]]; then
+        INTERRUPTED=true
+        echo "" >&2
+        echo "Interrupt received. Stopping..." >&2
+        # Don't delete files here - let normal cleanup happen
+    fi
+}
+
+# Check if script was interrupted
+is_interrupted() {
+    [[ "$INTERRUPTED" == "true" ]]
+}
+
+# Export for parallel workers
+export -f is_interrupted
+
+# Set trap handler for interruption
+trap handle_interrupt INT TERM
+
+# Basic Functions
+
+die() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
+
+die_with_usage() {
+    local msg="⚠️  ERROR: $1"
+    local width=${#msg}
+    local border=$(printf '=%.0s' $(seq 1 $((width > 70 ? width : 70))))
+
+    echo "" >&2
+    echo "$border" >&2
+    echo "$msg" >&2
+    echo "$border" >&2
+    echo "" >&2
+    show_usage >&2
+    exit 1
+}
+
+# Internal helper for logging with consistent formatting
+_log_with_level() {
+    local level="$1"
+    local text="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local domain_prefix=""
+    [[ -n "$CURRENT_DOMAIN" ]] && domain_prefix="[$CURRENT_DOMAIN] "
+    local message="[$timestamp] ${domain_prefix}${level}: ${text}"
+
+    # Always write to log file
+    echo "$message" >> "$LOG_FILE" 2>/dev/null || true
+
+    # Write to stderr based on level
+    case "$level" in
+        ERROR)
+            echo "$message" >&2
+            ;;
+        INFO|DEBUG)
+            [[ "$DEBUG" == "true" ]] && echo "$message" >&2
+            ;;
+    esac
+}
+
+log_message() {
+    _log_with_level "INFO" "$1"
+}
+
+debug_message() {
+    _log_with_level "DEBUG" "$1"
+}
+
+error_message() {
+    _log_with_level "ERROR" "$1"
+}
+
+# Export logging functions for parallel workers
+export -f _log_with_level log_message debug_message error_message
+
+# Setup Functions
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [OPTIONS] <base_url> <cms_login_url> <language> <mailto>
+   OR: $(basename "$0") --single-page-scan <URL> [OPTIONS]
+
+Parameters:
+  base_url        Base URL to check (e.g., https://www.example.com)
+  cms_login_url   CMS login URL or "-" if none
+  language        Report language: de or en
+  mailto          Email addresses (comma-separated)
+
+Options:
+  --single-page-scan URL  Check only a single page without recursion
+                          (When used, base_url and cms_login_url are not required)
+  --exclude REGEX     Add exclude pattern (can use multiple times)
+  --max-depth N       Maximum crawl depth (default: unlimited)
+  --max-urls N        Maximum URLs to check (default: unlimited)
+  --parallel N        Number of parallel workers (default: 30)
+  --batch-size N      URLs per batch (default: 100)
+  --debug             Enable debug output
+  --send-max-urls-report  Send email notification when MAX_URLS limit is reached
+  --max-urls-email EMAIL  Email address for MAX_URLS notifications
+  --disable-url-loop-warning  Disable URL loop detection warnings in reports
+  --exclude-protected-pages   Exclude protected pages from error reports
+  -h, --help          Show this help
+
+Note: Options also support '=' syntax (e.g., --exclude=REGEX, --max-depth=5)
+
+Examples:
+  $(basename "$0") https://example.com - de admin@example.com --debug
+  $(basename "$0") https://example.com - en admin@example.com --exclude "/api" --exclude "\.pdf$"
+  $(basename "$0") https://example.com - en admin@example.com --max-urls=100 --parallel=5
+  $(basename "$0") https://example.com - de admin@example.com --disable-url-loop-warning
+
+  # Single page scan examples:
+  $(basename "$0") --single-page-scan https://example.com/page.html en admin@example.com
+  $(basename "$0") --single-page-scan=https://example.com/page.html en admin@example.com --debug
+EOF
+}
+
+set_language_texts() {
+    local lang="$1"
+    
+    # Convert language to uppercase for variable prefix
+    local lang_prefix="DE"  # Default to German
+    [[ "$lang" == "en" ]] && lang_prefix="EN"
+    
+    # List of all language variables to set
+    local vars=("SUBJECT" "INTRO_TITLE" "INTRO_TEXT" "CMS_TITLE" "CMS_TEXT"
+                "SUMMARY_TITLE" "DETAILS_TITLE" "DURATION" "TOTAL_URLS" "ERROR_URLS"
+                "DUPLICATE_ERRORS" "FALSE_POSITIVES" "YOUTUBE_CHECKED" "YOUTUBE_UNAVAILABLE"
+                "SUCCESS_RATE" "COLUMN_URL" "COLUMN_ERROR" "COLUMN_PARENT" "FOOTER_TEXT" "CSS_NOTE"
+                "PROTECTION_DETECTED" "PROTECTION_TITLE" "PROTECTION_TEXT"
+                "MAX_URLS_SUBJECT" "MAX_URLS_TITLE" "MAX_URLS_TEXT"
+                "URL_LOOP_TITLE" "URL_LOOP_TEXT" "URL_LOOP_SUBJECT_SUFFIX" "URL_LOOP_TABLE_HEADER"
+                "MALFORMED_URL_ERROR" "YOUTUBE_ERROR")
+    
+    # Dynamically set language variables (safer approach without eval)
+    for var in "${vars[@]}"; do
+        local source_var="LANG_${lang_prefix}_${var}"
+        local target_var="LANG_${var}"
+        # Use printf with -v to set variable safely
+        local value="${!source_var}"
+        printf -v "$target_var" "%s" "$value"
+    done
+}
+
+replace_placeholders() {
+    local text="$1"
+    local base_url="$2"
+    local cms_url="$3"
+    
+    # Replace placeholders with actual values
+    text="${text//###base_url###/$base_url}"
+    text="${text//###cms_url###/$cms_url}"
+    
+    echo "$text"
+}
+parse_arguments() {
+    REMAINING_ARGS=()
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --exclude)
+                # Handle --exclude pattern (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    DYNAMIC_EXCLUDES+=("$1")
+                    shift
+                else
+                    die_with_usage "Missing value for --exclude parameter"
+                fi
+                ;;
+            --exclude=*)
+                DYNAMIC_EXCLUDES+=("${1#*=}")
+                shift
+                ;;
+            --max-depth|--max_depth)
+                # Handle --max-depth N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    MAX_DEPTH="$1"
+                    shift
+                else
+                    die_with_usage "Missing value for --max-depth parameter"
+                fi
+                ;;
+            --max-depth=*|--max_depth=*)
+                MAX_DEPTH="${1#*=}"
+                shift
+                ;;
+            --max-urls|--max_urls)
+                # Handle --max-urls N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    # Remove any quotes and ensure it's a number
+                    MAX_URLS="${1//\"/}"
+                    MAX_URLS="${MAX_URLS//\'/}"
+                    # Validate it's a number
+                    if ! [[ "$MAX_URLS" =~ ^-?[0-9]+$ ]]; then
+                        die "Invalid value for --max-urls: $1 (must be a number)"
+                    fi
+                    shift
+                else
+                    die_with_usage "Missing value for --max-urls parameter"
+                fi
+                ;;
+            --max-urls=*|--max_urls=*)
+                # Remove any quotes and ensure it's a number
+                MAX_URLS="${1#*=}"
+                MAX_URLS="${MAX_URLS//\"/}"
+                MAX_URLS="${MAX_URLS//\'/}"
+                # Validate it's a number
+                if ! [[ "$MAX_URLS" =~ ^-?[0-9]+$ ]]; then
+                    die "Invalid value for --max-urls: ${1#*=} (must be a number)"
+                fi
+                shift
+                ;;
+            --parallel)
+                # Handle --parallel N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    PARALLEL_WORKERS="$1"
+                    shift
+                else
+                    die_with_usage "Missing value for --parallel parameter"
+                fi
+                ;;
+            --parallel=*)
+                PARALLEL_WORKERS="${1#*=}"
+                shift
+                ;;
+            --batch-size|--batch_size)
+                # Handle --batch-size N (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    BATCH_SIZE="$1"
+                    shift
+                else
+                    die_with_usage "Missing value for --batch-size parameter"
+                fi
+                ;;
+            --batch-size=*|--batch_size=*)
+                BATCH_SIZE="${1#*=}"
+                shift
+                ;;
+            --send-max-urls-report|--send_max_urls_report)
+                SEND_REPORT_ON_MAX_URLS_REACHED="true"
+                shift
+                ;;
+            --max-urls-email|--max_urls_email)
+                # Handle --max-urls-email EMAIL (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    MAX_URLS_ADMIN_EMAIL="$1"
+                    shift
+                else
+                    die_with_usage "Missing value for --max-urls-email parameter"
+                fi
+                ;;
+            --max-urls-email=*|--max_urls_email=*)
+                MAX_URLS_ADMIN_EMAIL="${1#*=}"
+                shift
+                ;;
+            --disable-url-loop-warning|--disable_url_loop_warning)
+                URL_LOOP_ENABLE_WARNING="false"
+                shift
+                ;;
+            --exclude-protected-pages|--exclude_protected_pages)
+                INCLUDE_PROTECTED_IN_REPORT="false"
+                shift
+                ;;
+            --single-page-scan)
+                # Handle --single-page-scan URL (with space)
+                shift
+                if [[ -n "$1" ]] && [[ ! "$1" =~ ^-- ]]; then
+                    SINGLE_PAGE_SCAN="$1"
+                    SINGLE_PAGE_MODE=true
+                    shift
+                else
+                    die_with_usage "Missing URL for --single-page-scan parameter"
+                fi
+                ;;
+            --single-page-scan=*)
+                SINGLE_PAGE_SCAN="${1#*=}"
+                SINGLE_PAGE_MODE=true
+                shift
+                ;;
+            --debug)
+                DEBUG="true"
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+validate_parameters() {
+    local base_url="$1"
+    local cms_login_url="$2"
+    local language="$3"
+    local mailto="$4"
+
+    [[ "$base_url" =~ ^https?:// ]] || die "Invalid base URL"
+
+    # Security: Validate base URL against command injection
+    if ! validate_url_for_curl "$base_url"; then
+        die "Base URL contains invalid or potentially dangerous characters"
+    fi
+
+    if [[ "$cms_login_url" != "-" ]]; then
+        [[ "$cms_login_url" =~ ^https?:// ]] || die "Invalid CMS URL"
+        # Security: Validate CMS URL against command injection
+        if ! validate_url_for_curl "$cms_login_url"; then
+            die "CMS URL contains invalid or potentially dangerous characters"
+        fi
+    fi
+
+    [[ "$language" =~ ^(de|en)$ ]] || die "Language must be de or en"
+    [[ "$mailto" =~ @ ]] || die "Invalid email"
+}
+
+check_prerequisites() {
+    [[ -x "$CURL_IMPERSONATE_BINARY" ]] || die "curl-impersonate not found at $CURL_IMPERSONATE_BINARY"
+    [[ -x "$SENDMAIL_BINARY" ]] || die "sendmail not found at $SENDMAIL_BINARY"
+    command -v xargs &>/dev/null || die "xargs command not found"
+    
+    # Check log file permissions
+    if ! touch "$LOG_FILE" 2>/dev/null; then
+        echo "ERROR: Cannot write to log file $LOG_FILE" >&2
+        echo "" >&2
+        echo "Please run the following commands to fix this:" >&2
+        echo "" >&2
+        echo "  sudo touch $LOG_FILE" >&2
+        echo "  sudo chmod 666 $LOG_FILE" >&2
+        echo "" >&2
+        echo "Or to give write access only to your user:" >&2
+        echo "" >&2
+        echo "  sudo touch $LOG_FILE" >&2
+        echo "  sudo chown $(whoami):$(whoami) $LOG_FILE" >&2
+        echo "" >&2
+        exit 1
+    fi
+    
+    debug_message "Prerequisites OK"
+}
+
+# URL Functions
+
+# Extract domain from URL (removes protocol and path)
+extract_domain() {
+    local url="$1"
+    local domain="${url#*://}"
+    echo "${domain%%/*}"
+}
+
+# Export extract_domain for use in parallel workers
+export -f extract_domain
+
+# Parse HTTP response into components (status, content_type, content)
+parse_http_response() {
+    local response="$1"
+    local var_prefix="${2:-}"  # Optional prefix for variable names
+
+    if [[ -n "$var_prefix" ]]; then
+        eval "${var_prefix}_status=\$(echo \"\$response\" | sed -n '1p')"
+        eval "${var_prefix}_content_type=\$(echo \"\$response\" | sed -n '2p')"
+        eval "${var_prefix}_content=\$(echo \"\$response\" | tail -n +3)"
+    else
+        # Return as space-separated values if no prefix given
+        echo "$(echo "$response" | sed -n '1p')"
+        echo "$(echo "$response" | sed -n '2p')"
+        echo "$(echo "$response" | tail -n +3)"
+    fi
+}
+
+# Export for parallel workers
+export -f parse_http_response
+
+# Check if content type is CSS
+is_css_content() {
+    local content_type="$1"
+    [[ "$content_type" =~ text/css ]]
+}
+
+# Check if content type is HTML/XHTML
+is_html_content() {
+    local content_type="$1"
+    [[ "$content_type" =~ text/html ]] ||
+    [[ "$content_type" =~ application/xhtml ]] ||
+    [[ "$content_type" =~ text/xml ]] ||
+    [[ "$content_type" =~ application/xml ]]
+}
+
+# Check if HTTP status is successful (2xx)
+is_http_success() {
+    local status="$1"
+    [[ "$status" =~ ^2[0-9][0-9]$ ]]
+}
+
+# Export content type helpers
+export -f is_css_content is_html_content is_http_success
+
+# Add an error to the error tracking lists
+add_error_to_lists() {
+    local error_url="$1"
+    local error_text="$2"
+    local parent_url="$3"
+
+    ERROR_URL_LIST+=("$error_url")
+    ERROR_TEXT_LIST+=("$error_text")
+    ERROR_PARENT_LIST+=("$parent_url")
+    ((ERROR_COUNT++))
+
+    if [[ "$DEBUG" == "true" ]]; then
+        debug_message "Added error: $error_url - $error_text (from: $parent_url)"
+    fi
+}
+
+# Export for parallel workers
+export -f add_error_to_lists
+

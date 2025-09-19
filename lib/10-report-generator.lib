@@ -1,0 +1,342 @@
+# 10-report-generator.lib - Report Generation Functions
+generate_report() {
+    local base_url="$1"
+    local cms_url="$2"
+    
+    local success_rate=100
+    [[ $TOTAL_URLS -gt 0 ]] && success_rate=$(( (TOTAL_URLS - ERROR_COUNT) * 100 / TOTAL_URLS ))
+    
+    local duration="${CHECK_DURATION}s"
+    [[ $CHECK_DURATION -ge 60 ]] && duration="$((CHECK_DURATION / 60))m $((CHECK_DURATION % 60))s"
+    
+    # Calculate additional statistics
+    local false_positives=0
+    local duplicates=0
+    local youtube_checked="${YOUTUBE_URLS_CHECKED:-0}"
+    local youtube_errors="${YOUTUBE_ERRORS:-0}"
+    
+    # Start HTML output
+    cat <<'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+HTMLEOF
+    
+    echo "<title>$LANG_SUBJECT</title>"
+    
+    cat <<HTMLEOF
+<style>
+body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f5f5f5}
+.container{max-width:1200px;margin:20px auto;background:white;padding:30px;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+.header{text-align:center;margin-bottom:30px}
+.logo{width:200px;height:auto;margin-bottom:20px}
+h1{color:#333;font-size:28px;font-weight:normal;text-align:center;margin:10px 0 30px 0}
+.intro-box{background:#f0f4f8;padding:20px;border-left:4px solid $THEME_COLOR;margin-bottom:30px;border-radius:5px}
+.intro-box p{margin:0;color:#333;font-size:15px}
+.intro-box a{color:$THEME_COLOR;text-decoration:none}
+.intro-box a:hover{text-decoration:underline}
+h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom:10px;margin:30px 0 20px 0}
+.stats-table{width:100%;border-collapse:collapse;margin-bottom:30px}
+.stats-table tr{border-bottom:1px solid #e0e0e0}
+.stats-table tr:last-child{border-bottom:none}
+.stats-table th{background:$THEME_COLOR;color:white;text-align:left;padding:12px;font-weight:normal;width:40%}
+.stats-table td{padding:12px;color:#333;background:#f9f9f9}
+.stats-table .error-count{color:#e74c3c;font-weight:bold}
+.stats-table .warning-count{color:#f39c12;font-weight:bold}
+.stats-table .success-rate{color:#27ae60;font-weight:bold}
+.error-table{width:100%;border-collapse:collapse;margin-top:20px}
+.error-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
+.error-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
+.error-table tbody tr:hover{background:#f5f5f5}
+.error-table tbody tr.css-error{background:#fff3e0}
+.error-table tbody tr.protected-error{background:#f0f0f0}
+.error-table a{color:$THEME_COLOR;text-decoration:none}
+.error-table a:hover{text-decoration:underline}
+.error-text{color:#e74c3c}
+.info-box{background:#f0f0f0;padding:20px;border-radius:5px;margin:30px 0;border-left:4px solid #999}
+.info-box h3{margin:0 0 10px 0;color:#333;font-size:16px;font-weight:bold}
+.info-box p{margin:0;color:#555;font-size:14px;line-height:1.5}
+.cms-box{background:#e3f2fd;padding:20px;border-radius:5px;margin:20px 0;border-left:4px solid #2196f3}
+.cms-box h2{margin:0 0 10px 0;color:#1565c0;font-size:16px;font-weight:bold}
+.cms-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.cms-box a{color:#1976d2;text-decoration:none;font-weight:500}
+.cms-box a:hover{text-decoration:underline}
+.loop-warning-box{background:#ffebee;padding:20px;border-left:4px solid #f44336;margin:30px 0;border-radius:5px}
+.loop-warning-box h3{margin:0 0 10px 0;color:#c62828;font-size:18px;font-weight:bold}
+.loop-warning-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.loop-table{width:100%;border-collapse:collapse;margin-top:20px}
+.loop-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
+.loop-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
+.loop-table tbody tr:hover{background:#f5f5f5}
+.loop-table a{color:$THEME_COLOR;text-decoration:none;word-break:break-all}
+.loop-table a:hover{text-decoration:underline}
+.footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #e0e0e0;color:#999;font-size:12px}
+.footer p{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+HTMLEOF
+    echo "<img src=\"$LOGO_URL\" alt=\"$LOGO_ALT\" class=\"logo\">"
+    echo "<h1>$LANG_INTRO_TITLE</h1>"
+    cat <<'HTMLEOF'
+</div>
+<div class="intro-box">
+HTMLEOF
+    local intro_text=$(replace_placeholders "$LANG_INTRO_TEXT" "<a href=\"$base_url\">$base_url</a>" "")
+    echo "<p>$intro_text</p>"
+    cat <<'HTMLEOF'
+</div>
+HTMLEOF
+    
+    # Add CMS link section right after intro if provided
+    if [[ "$cms_url" != "-" ]]; then
+        echo "<div class=\"cms-box\">"
+        echo "<h2>$LANG_CMS_TITLE</h2>"
+        local cms_text=$(replace_placeholders "$LANG_CMS_TEXT" "" "<a href=\"$cms_url\">$cms_url</a>")
+        echo "<p>$cms_text</p>"
+        echo "</div>"
+    fi
+    
+    # Add MAX_URLS warning if limit was reached
+    if [[ "$MAX_URLS_REACHED" == "true" ]]; then
+        # Replace placeholders in MAX_URLS warning text
+        local max_urls_warning=$(echo "$LANG_MAX_URLS_TEXT" | \
+            sed "s|###base_url###|<a href=\"$base_url\">$base_url</a>|g" | \
+            sed "s|###max_urls###|$MAX_URLS|g" | \
+            sed "s|###crawled_count###|${MAX_URLS_CRAWLED_COUNT:-$MAX_URLS}|g" | \
+            sed "s|###discovered_count###|${MAX_URLS_DISCOVERED_COUNT:-$MAX_URLS}|g")
+        
+        cat <<HTMLEOF
+<div class="info-box" style="border-left-color: #ff9800; background: #fff3e0;">
+    <h3>$LANG_MAX_URLS_TITLE</h3>
+    <p>$max_urls_warning</p>
+</div>
+HTMLEOF
+    fi
+    
+    # Add CSS error notice if report was redirected
+    if [[ "$CSS_ERRORS_FOUND" == "true" ]] && [[ "$REDIRECT_CSS_ERRORS_TO_ADMIN" == "true" ]]; then
+        cat <<'HTMLEOF'
+<div class="info-box" style="border-left-color: #ff9800;">
+    <h3>Developer Intervention Required</h3>
+    <p>This report contains errors found in CSS files. Since CSS files require developer access to fix, this report has been sent to the web administrator instead of the regular recipient. The CSS errors are highlighted in orange in the table below.</p>
+</div>
+HTMLEOF
+    fi
+    
+    # Add URL loop warning and list if detected (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        echo "<div class=\"loop-warning-box\">"
+        echo "<h3>$LANG_URL_LOOP_TITLE</h3>"
+        echo "<p>$LANG_URL_LOOP_TEXT</p>"
+        echo "</div>"
+
+        # Show separated list of looping URLs
+        if [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+            echo "<h2>$LANG_URL_LOOP_TABLE_HEADER</h2>"
+            echo "<table class=\"loop-table\">"
+            echo "<thead><tr><th>URL</th></tr></thead>"
+            echo "<tbody>"
+            IFS=$'\n' sorted_urls=($(printf '%s\n' "${URL_LOOP_ALL_URLS[@]}" | sort -u))
+            unset IFS
+            for url in "${sorted_urls[@]}"; do
+                echo "<tr><td><a href=\"$url\">$url</a></td></tr>"
+            done
+            echo "</tbody>"
+            echo "</table>"
+        fi
+    fi
+    
+    # Summary section with comprehensive statistics
+    echo "<h2>$LANG_SUMMARY_TITLE</h2>"
+    echo "<table class=\"stats-table\">"
+    echo "<tr><th>$LANG_DURATION</th><td>$duration</td></tr>"
+    echo "<tr><th>$LANG_TOTAL_URLS</th><td>$TOTAL_URLS</td></tr>"
+    echo "<tr><th>$LANG_ERROR_URLS</th><td class=\"error-count\">$ERROR_COUNT</td></tr>"
+    
+    # Add duplicate errors count if any
+    if [[ $ERROR_COUNT -gt 0 ]]; then
+        # Count unique errors
+        local unique_errors=$(printf "%s\n" "${ERROR_URL_LIST[@]}" | sort -u | wc -l)
+        duplicates=$((ERROR_COUNT - unique_errors))
+        [[ $duplicates -gt 0 ]] && echo "<tr><th>$LANG_DUPLICATE_ERRORS</th><td>$duplicates</td></tr>"
+    fi
+    
+    # Add false positives if tracked
+    [[ $false_positives -gt 0 ]] && echo "<tr><th>$LANG_FALSE_POSITIVES</th><td class=\"warning-count\">$false_positives</td></tr>"
+    
+    # Add YouTube statistics if checked
+    if [[ $youtube_checked -gt 0 ]]; then
+        echo "<tr><th>$LANG_YOUTUBE_CHECKED</th><td>$youtube_checked</td></tr>"
+        [[ $youtube_errors -gt 0 ]] && echo "<tr><th>$LANG_YOUTUBE_UNAVAILABLE</th><td class=\"error-count\">$youtube_errors</td></tr>"
+    fi
+    
+    echo "<tr><th>$LANG_SUCCESS_RATE</th><td class=\"success-rate\">${success_rate}%</td></tr>"
+    echo "</table>"
+    
+    # Error details if any
+    if [[ ${#ERROR_URL_LIST[@]} -gt 0 ]]; then
+        echo "<h2>$LANG_DETAILS_TITLE</h2>"
+        echo "<table class=\"error-table\">"
+        echo "<thead>"
+        echo "<tr><th>$LANG_COLUMN_PARENT</th><th>$LANG_COLUMN_ERROR</th><th>$LANG_COLUMN_URL</th></tr>"
+        echo "</thead>"
+        echo "<tbody>"
+        
+        local has_protected_errors=false
+        for i in "${!ERROR_URL_LIST[@]}"; do
+            local url="${ERROR_URL_LIST[$i]//&/&amp;}"
+            local error="${ERROR_TEXT_LIST[$i]//&/&amp;}"
+            local parent="${ERROR_PARENT_LIST[$i]//&/&amp;}"
+            
+            # Determine row class
+            local row_class=""
+            if [[ "$error" == *"$LANG_PROTECTION_DETECTED"* ]]; then
+                row_class=" class=\"protected-error\""
+                has_protected_errors=true
+            elif [[ "$parent" =~ \.css(\?.*)?$ ]]; then
+                row_class=" class=\"css-error\""
+            fi
+            
+            echo "<tr$row_class>"
+            # Handle empty or self-referencing parent URLs
+            if [[ -z "$parent" ]] || [[ "$parent" == "$url" ]]; then
+                echo "<td>-</td>"
+            else
+                echo "<td><a href=\"$parent\">$parent</a></td>"
+            fi
+            echo "<td class=\"error-text\">$error</td>"
+            echo "<td><a href=\"$url\">$url</a></td>"
+            echo "</tr>"
+        done
+        
+        echo "</tbody>"
+        echo "</table>"
+        
+        # Add info box for protected pages if any were found
+        if [[ "$has_protected_errors" == "true" ]]; then
+            echo "<div class=\"info-box\">"
+            echo "<h3>$LANG_PROTECTION_TITLE</h3>"
+            echo "<p>$LANG_PROTECTION_TEXT</p>"
+            echo "</div>"
+        fi
+    fi
+    
+    # Footer
+    echo "<div class=\"footer\">"
+    echo "<p>$LANG_FOOTER_TEXT v$SCRIPT_VERSION</p>"
+    echo "<p>$(date '+%d.%m.%Y %H:%M:%S')</p>"
+    echo "</div>"
+    echo "</div>"
+    echo "</body>"
+    echo "</html>"
+}
+
+
+generate_max_urls_report() {
+    local base_url="$1"
+    local max_urls="$2"
+    local crawled_count="$3"
+    local discovered_count="$4"
+    
+    # Replace placeholders in text
+    local text=$(echo "$LANG_MAX_URLS_TEXT" | \
+        sed "s|###base_url###|<a href=\"$base_url\">$base_url</a>|g" | \
+        sed "s|###max_urls###|$max_urls|g" | \
+        sed "s|###crawled_count###|$crawled_count|g" | \
+        sed "s|###discovered_count###|$discovered_count|g")
+    
+    cat <<HTMLEOF
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>$LANG_MAX_URLS_SUBJECT</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;padding:0;background:#f5f5f5}
+.container{max-width:1200px;margin:20px auto;background:white;padding:30px;border-radius:5px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+.header{text-align:center;margin-bottom:30px}
+.logo{width:200px;height:auto;margin-bottom:20px}
+h1{color:#333;font-size:28px;font-weight:normal;text-align:center;margin:10px 0 30px 0}
+h2{color:#333;font-size:20px;border-bottom:2px solid $THEME_COLOR;padding-bottom:10px;margin:30px 0 20px 0}
+.warning-box{background:#fff3e0;padding:20px;border-left:4px solid #ff9800;margin-bottom:30px}
+.warning-box p{margin:0;color:#333;font-size:15px;line-height:1.6}
+.warning-box a{color:$THEME_COLOR;text-decoration:none}
+.warning-box a:hover{text-decoration:underline}
+.loop-warning-box{background:#ffebee;padding:20px;border-left:4px solid #f44336;margin-bottom:30px}
+.loop-warning-box h3{margin:0 0 10px 0;color:#c62828;font-size:18px;font-weight:bold}
+.loop-warning-box p{margin:0;color:#333;font-size:14px;line-height:1.5}
+.loop-table{width:100%;border-collapse:collapse;margin-top:20px}
+.loop-table thead th{background:$THEME_COLOR;color:white;padding:12px;text-align:left;font-weight:normal}
+.loop-table tbody td{padding:10px;border-bottom:1px solid #e0e0e0}
+.loop-table tbody tr:hover{background:#f5f5f5}
+.loop-table a{color:$THEME_COLOR;text-decoration:none;word-break:break-all}
+.loop-table a:hover{text-decoration:underline}
+.footer{text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid #e0e0e0;color:#999;font-size:12px}
+.footer p{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<img src="$LOGO_URL" alt="$LOGO_ALT" class="logo">
+<h1>$LANG_MAX_URLS_TITLE</h1>
+</div>
+<div class="warning-box">
+<p>$text</p>
+</div>
+HTMLEOF
+    
+    # Debug logging for troubleshooting
+    debug_message "MAX_URLS report: URL_LOOPS_DETECTED=$URL_LOOPS_DETECTED, URL_LOOP_ALL_URLS count=${#URL_LOOP_ALL_URLS[@]}, URL_LOOP_ENABLE_WARNING=$URL_LOOP_ENABLE_WARNING"
+    
+    # Add URL loop detection results if any loops were found (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        echo "<div class=\"loop-warning-box\">"
+        echo "<h3>$LANG_URL_LOOP_TITLE</h3>"
+        echo "<p>$LANG_URL_LOOP_TEXT</p>"
+        echo "</div>"
+        
+        # Create table with all URLs where loops were detected
+        echo "<h2>$LANG_URL_LOOP_TABLE_HEADER</h2>"
+        echo "<table class=\"loop-table\">"
+        echo "<thead>"
+        echo "<tr><th>URL</th></tr>"
+        echo "</thead>"
+        echo "<tbody>"
+        
+        # Sort loop URLs alphabetically for better readability
+        if [[ ${#URL_LOOP_ALL_URLS[@]} -gt 0 ]]; then
+            debug_message "Displaying ${#URL_LOOP_ALL_URLS[@]} loop URLs in table"
+            IFS=$'\n' sorted_urls=($(printf '%s\n' "${URL_LOOP_ALL_URLS[@]}" | sort -u))
+            unset IFS
+            
+            # Display sorted URLs
+            for url in "${sorted_urls[@]}"; do
+                echo "<tr><td><a href=\"$url\">$url</a></td></tr>"
+            done
+        else
+            debug_message "No loop URLs to display in table"
+            echo "<tr><td>No specific loop URLs collected</td></tr>"
+        fi
+        
+        echo "</tbody>"
+        echo "</table>"
+    fi
+    
+    cat <<HTMLEOF
+<div class="footer">
+<p>$LANG_FOOTER_TEXT v$SCRIPT_VERSION</p>
+<p>$(date '+%d.%m.%Y %H:%M:%S')</p>
+</div>
+</div>
+</body>
+</html>
+HTMLEOF
+}
+
+# Debug Functions
+

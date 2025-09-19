@@ -1,0 +1,397 @@
+# 04-http-engine.lib - HTTP Request Engine with Retry and Pooling
+create_curl_config() {
+    cat <<EOF
+--ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-SHA,ECDHE-RSA-AES256-SHA,AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-SHA,AES256-SHA
+-H "sec-ch-ua: \"Chromium\";v=\"116\", \"Not)A;Brand\";v=\"24\", \"Google Chrome\";v=\"116\""
+-H "sec-ch-ua-mobile: ?0"
+-H "sec-ch-ua-platform: \"Windows\""
+-H "Upgrade-Insecure-Requests: 1"
+-H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+-H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+-H "Sec-Fetch-Site: none"
+-H "Sec-Fetch-Mode: navigate"
+-H "Sec-Fetch-User: ?1"
+-H "Sec-Fetch-Dest: document"
+-H "Accept-Encoding: gzip, deflate, br"
+-H "Accept-Language: en-US,en;q=0.9"
+--http2
+--http2-no-server-push
+--compressed
+--tlsv1.2
+--alps
+--tls-permute-extensions
+--cert-compression brotli
+--location
+--max-redirs $CURL_MAX_REDIRECTS
+--connect-timeout $CURL_TIMEOUT
+--max-time $((CURL_TIMEOUT + 5))
+-s
+EOF
+}
+
+http_request_pooled() {
+    local url="$1"
+    local method="${2:-GET}"
+
+    # Security: Validate URL before passing to curl
+    if ! validate_url_for_curl "$url"; then
+        debug_message "URL failed security validation: ${url:0:100}..."
+        echo "000"  # Return error status
+        echo ""     # Empty content type
+        return 1
+    fi
+
+    # For large files (PDFs, videos, etc), use HEAD request to avoid downloading entire file
+    if [[ "$method" == "GET" ]] && [[ "$url" =~ \.${BINARY_FILE_EXTENSIONS}(\?.*)?$ ]]; then
+        method="HEAD"  # Switch to HEAD for binary files
+    fi
+
+    # Execute curl with connection cache - pass config via stdin
+    local full_response
+    full_response=$(create_curl_config | "$CURL_IMPERSONATE_BINARY" \
+        --config - \
+        --parallel \
+        --parallel-max "$CONNECTION_CACHE_SIZE" \
+        $([ "$method" == "HEAD" ] && echo "--head") \
+        -w "\n__STATUS_CODE__%{http_code}\n__CONTENT_TYPE__%{content_type}" \
+        -- "$url" 2>/dev/null | tr -d '\0') || echo "__STATUS_CODE__000\n__CONTENT_TYPE__"
+
+    # Extract status code and content-type
+    local status_code="${full_response##*__STATUS_CODE__}"
+    status_code="${status_code%%$'\n'*}"
+
+    # Handle 206 Partial Content as success (from range requests)
+    if [[ "$status_code" == "206" ]]; then
+        status_code="200"
+    fi
+
+    local content_type="${full_response##*__CONTENT_TYPE__}"
+    content_type="${content_type%%$'\n'*}"
+    # Clean up content-type (remove charset and parameters)
+    content_type="${content_type%%;*}"
+
+    # Extract body (everything before the markers)
+    local body="${full_response%__STATUS_CODE__*}"
+
+    echo "$status_code"
+    echo "$content_type"
+    [[ -n "$body" ]] && echo "$body"
+}
+
+http_request_with_retry() {
+    local url="$1"
+    local method="${2:-GET}"
+    local max_retries="$CRAWL_MAX_RETRIES"
+    local retry_delay="$CRAWL_RETRY_DELAY"
+    local attempt=0
+    local response=""
+    local status=""
+
+    while [[ $attempt -lt $max_retries ]]; do
+        response=$(http_request_pooled "$url" "$method" 2>/dev/null)
+        # Extract just the status for retry logic
+        local retry_status retry_content_type retry_content
+        parse_http_response "$response" "retry"
+        status="$retry_status"
+
+        # If we got a successful response (2xx or 3xx), return it
+        if [[ "$status" =~ ^[23][0-9][0-9]$ ]]; then
+            echo "$response"
+            return 0
+        fi
+
+        # For 404, 410 (Gone), 403 (Forbidden), 401 (Unauthorized) errors, don't retry - they're definitive
+        if [[ "$status" =~ ^(404|410|403|401)$ ]]; then
+            debug_message "Request failed with status $status for $url - not retrying"
+            echo "$response"
+            return 1
+        fi
+
+        # For other 4xx/5xx errors, retry with shorter backoff
+        if [[ "$status" =~ ^[45][0-9][0-9]$ ]]; then
+            ((attempt++))
+            if [[ $attempt -lt $max_retries ]]; then
+                # Shorter backoff: 1s, 2s
+                local delay=$((retry_delay * attempt))
+                debug_message "Request failed with status $status for $url, retry $attempt/$max_retries after ${delay}s"
+                sleep "$delay"
+            else
+                debug_message "Request failed with status $status for $url after $max_retries attempts"
+                echo "$response"  # Return the last failed response
+                return 1
+            fi
+        else
+            # For other errors (000, empty status, etc.), return immediately
+            echo "$response"
+            return 1
+        fi
+    done
+    
+    echo "$response"
+}
+
+# Parallel URL Checking
+
+check_url_worker() {
+    local url="$1"
+    # Remove trailing backslash if present (safety check)
+    url="${url%\\}"
+    local parent="$2"
+    local base_url="$3"
+
+    # First validate URL
+    if ! is_url_valid "$url"; then
+        echo "SKIP|$url|Invalid URL|$parent"
+        return
+    fi
+
+    # Skip if excluded - check early before any HTTP request
+    if is_url_excluded "$url"; then
+        echo "SKIP|$url|Excluded URL|$parent"
+        return
+    fi
+
+    # Determine if URL is external (different domain)
+    local is_external=false
+
+    # Only check if URL is absolute (starts with http:// or https://)
+    if [[ "$url" =~ ^https?:// ]]; then
+        local base_domain=$(extract_domain "$base_url")
+        local url_domain=$(extract_domain "$url")
+        [[ "$url_domain" != "$base_domain" ]] && is_external=true
+    fi
+    
+    # For external URLs and binary files, use HEAD to avoid downloading content
+    # Only use GET for HTML pages that might have protection challenges
+    local method="HEAD"
+
+    # Check if URL is likely a binary file using existing BINARY_FILE_EXTENSIONS
+    if [[ "$url" =~ \.${BINARY_FILE_EXTENSIONS}(\?.*)?$ ]]; then
+        method="HEAD"  # Always use HEAD for binary files
+    elif [[ "$is_external" == "true" ]]; then
+        # For external non-binary URLs, still use GET to handle 403 better
+        method="GET"
+    fi
+    
+    local response=$(http_request_with_retry "$url" "$method" 2>/dev/null)
+    local status content_type body
+    parse_http_response "$response" "check"
+    status="$check_status"
+    content_type="$check_content_type"
+    local body=""
+    
+    # Store MIME type for this URL (only if array exists - not in subprocess)
+    if [[ -n "$content_type" ]] && declare -p URL_MIME_TYPES &>/dev/null; then
+        URL_MIME_TYPES["$url"]="$content_type"
+    fi
+    
+    # Debug: show content type for checked URL
+    if [[ "$DEBUG" == "true" ]]; then
+        # Clean up content-type for display (remove any CR/LF)
+        local clean_content_type="${content_type//[$'\r\n']/}"
+        debug_message "Checked: $url [${clean_content_type:-unknown}] (Status: $status)"
+    fi
+    
+    # Check if this is a Cloudflare challenge page
+    # For external URLs, we already have GET response body
+    # For internal URLs, only do GET request if we got a 403 to check for protection
+    local is_protected=false
+    local error_suffix=""
+    if [[ "$status" == "403" ]]; then
+        local check_body=""
+        if [[ "$is_external" == "true" ]]; then
+            # For external URLs, we already have the body from GET request
+            check_body="$check_content"
+        else
+            # For internal URLs, make a GET request to check body for Cloudflare protection
+            local get_response=$(http_request_with_retry "$url" "GET" 2>/dev/null)
+            local get_status get_content_type get_content
+            parse_http_response "$get_response" "get403"
+            check_body="$get403_content"
+        fi
+        
+        if [[ -n "$check_body" ]]; then
+            if echo "$check_body" | grep -qE "(cf-challenge|cf_chl_opt|Cloudflare|Just a moment|Enable JavaScript and cookies to continue)"; then
+                debug_message "Cloudflare challenge detected for $url"
+                is_protected=true
+                error_suffix=" ${LANG_PROTECTION_DETECTED}"
+            fi
+        fi
+    fi
+    
+    # Determine result
+    if [[ -z "$status" ]] || [[ "$status" -ge 400 ]]; then
+        if [[ "$is_protected" == "true" ]]; then
+            echo "PROTECTED_ERROR|$url|HTTP ${status:-Failed}${error_suffix}|$parent"
+        else
+            echo "ERROR|$url|HTTP ${status:-Failed}|$parent"
+        fi
+    else
+        echo "OK|$url|$status|$parent"
+    fi
+}
+
+export -f check_url_worker http_request_pooled http_request_with_retry create_curl_config normalize_url debug_message is_url_valid validate_url_for_curl is_url_in_scope is_binary_file_url is_url_excluded parse_http_response is_css_content is_html_content is_http_success is_interrupted add_error_to_lists log_message error_message
+export CURL_IMPERSONATE_BINARY CURL_TIMEOUT CURL_MAX_REDIRECTS CRAWL_MAX_RETRIES CRAWL_RETRY_DELAY CONNECTION_CACHE_SIZE DEBUG LOG_FILE CURRENT_DOMAIN INCLUDE_PROTECTED_IN_REPORT LANG_PROTECTION_DETECTED LANG_YOUTUBE_ERROR LANG_MALFORMED_URL_ERROR MAX_URL_LENGTH CSS_ERRORS_FOUND REDIRECT_CSS_ERRORS_TO_ADMIN YOUTUBE_MAX_RETRIES URL_LOOP_THRESHOLD URL_LOOP_MIN_SEGMENTS INTERRUPTED BINARY_FILE_EXTENSIONS EXCLUDES DYNAMIC_EXCLUDES WORKER_TIMEOUT ERROR_URL_LIST ERROR_TEXT_LIST ERROR_PARENT_LIST ERROR_COUNT
+# Note: Associative arrays cannot be exported in bash, URL_MIME_TYPES stays local to main process
+
+check_urls_parallel() {
+    local base_url="$1"
+    local -a urls_to_check=()
+    local -A seen_urls=()
+    
+    # Build list of URLs to check (with deduplication and validation)
+    for url in "${!ALL_DISCOVERED[@]}"; do
+        # Skip only if successfully checked during crawling (2xx status)
+        # URLs with error status need to be rechecked in the parallel phase
+        if [[ -n "${CHECKED_CACHE["$url"]}" ]]; then
+            local cached_status="${CHECKED_CACHE["$url"]}"
+            if is_http_success "$cached_status"; then
+                debug_message "Skipping already checked URL (status $cached_status): $url"
+                continue
+            else
+                # URL had an error during crawling, ensure it gets checked again
+                debug_message "URL had error status $cached_status during crawling, will recheck: $url"
+            fi
+        fi
+        # Apply MAX_URLS limit if set
+        if [[ "$MAX_URLS" -ne -1 ]] && [[ ${#urls_to_check[@]} -ge "$MAX_URLS" ]]; then
+            debug_message "Reached MAX_URLS limit ($MAX_URLS), stopping URL collection"
+            MAX_URLS_REACHED=true
+            if [[ "$MAX_URLS_CRAWLED_COUNT" -eq 0 ]]; then
+                # If not set during crawling, set it here during checking
+                MAX_URLS_CRAWLED_COUNT="${#urls_to_check[@]}"
+                MAX_URLS_DISCOVERED_COUNT="${#ALL_DISCOVERED[@]}"
+            fi
+            break
+        fi
+        
+        # Validate URL before checking
+        if ! is_url_valid "$url"; then
+            debug_message "Skipping invalid URL: ${url:0:100}..."
+            ((EXCLUDED_URLS++))
+            continue
+        fi
+        
+        if [[ -z "${seen_urls[$url]:-}" ]] && ! is_url_excluded "$url"; then
+            # Remove trailing backslash if present (safety check)
+            url="${url%\\}"
+            urls_to_check+=("$url")
+            seen_urls["$url"]=1
+        elif is_url_excluded "$url"; then
+            ((EXCLUDED_URLS++))
+        fi
+    done
+    
+    log_message "Checking ${#urls_to_check[@]} URLs with $PARALLEL_WORKERS parallel workers"
+    
+    local checked=0
+    local batch_num=0
+    local protected_count=0
+    
+    # Collect results in memory instead of temp file
+    local -a all_results=()
+    
+    # Process in batches for better progress reporting
+    while [[ $checked -lt ${#urls_to_check[@]} ]]; do
+        ((batch_num++))
+        local batch_end=$((checked + BATCH_SIZE))
+        [[ $batch_end -gt ${#urls_to_check[@]} ]] && batch_end=${#urls_to_check[@]}
+        
+        log_message "Processing batch $batch_num: URLs $((checked + 1)) to $batch_end"
+        
+        # Process batch in parallel - prepare URLs with parent info
+        local batch_data=()
+        for ((i=checked; i<batch_end && i<${#urls_to_check[@]}; i++)); do
+            local url="${urls_to_check[$i]}"
+
+            # URL_PARENTS is an associative array that doesn't exist in subprocess
+            local parent=""
+            if declare -p URL_PARENTS &>/dev/null 2>&1; then
+                parent="${URL_PARENTS["$url"]:-}"
+            fi
+            # Remove trailing backslash from URL if present (final safety check)
+            url="${url%\\}"
+            batch_data+=("${url}|${parent}|${base_url}")
+        done
+        
+        # Process batch in parallel and collect results (with interrupt check)
+        if [[ "$INTERRUPTED" != "true" ]]; then
+            # Debug: Show first batch item
+            if [[ "$DEBUG" == "true" ]] && [[ ${#batch_data[@]} -gt 0 ]]; then
+                debug_message "First batch item: ${batch_data[0]}"
+            fi
+
+            # Use GNU parallel if available for better performance, otherwise fall back to xargs
+            if command -v parallel &>/dev/null; then
+                while IFS= read -r result_line; do
+                    all_results+=("$result_line")
+                done < <(printf "%s\n" "${batch_data[@]}" | \
+                parallel -j "$PARALLEL_WORKERS" --no-notice --will-cite --colsep '\|' 'url={1}; parent={2}; base_url={3}; export url parent base_url; timeout 30 bash -c "check_url_worker \"\$url\" \"\$parent\" \"\$base_url\""')
+            else
+                while IFS= read -r result_line; do
+                    all_results+=("$result_line")
+                done < <(printf "%s\n" "${batch_data[@]}" | \
+                xargs -P "$PARALLEL_WORKERS" -I {} bash -c 'data="$1"; IFS="|" read -r url parent base_url <<< "$data"; if [[ -n "$url" ]]; then export url parent base_url; timeout 30 bash -c "check_url_worker \"\$url\" \"\$parent\" \"\$base_url\"" || echo "ERROR|\$url|Request timeout (30s)|\$parent"; else echo "ERROR||Empty URL|"; fi' bash "{}")
+            fi
+        fi
+        
+        checked=$batch_end
+    done
+    
+    # Process results from array
+    for result_line in "${all_results[@]}"; do
+        IFS='|' read -r result url status parent <<< "$result_line"
+        ((TOTAL_URLS++))
+        
+        case "$result" in
+            ERROR)
+                add_error_to_lists "$url" "$status" "$parent"
+                ERRORS_FOUND=true
+                
+                # Check if the error is from a CSS file
+                if [[ "$parent" =~ \.css(\?.*)?$ ]]; then
+                    CSS_ERRORS_FOUND=true
+                    debug_message "CSS error detected: $url found in $parent"
+                fi
+                ;;
+            PROTECTED_ERROR)
+                ((protected_count++))
+                # Only add to error list if including protected pages
+                if [[ "$INCLUDE_PROTECTED_IN_REPORT" == "true" ]]; then
+                    add_error_to_lists "$url" "$status" "$parent"
+                    ERRORS_FOUND=true
+                    
+                    # Check if the error is from a CSS file
+                    if [[ "$parent" =~ \.css(\?.*)?$ ]]; then
+                        CSS_ERRORS_FOUND=true
+                        debug_message "CSS error detected: $url found in $parent"
+                    fi
+                else
+                    debug_message "Excluding protected page from report: $url"
+                fi
+                ;;
+            OK|CACHED)
+                # Only set status if URL is not empty
+                if [[ -n "$url" ]]; then
+                    URL_STATUS["$url"]="$status"
+                    CHECKED_CACHE["$url"]="$status"
+                fi
+                ;;
+            SKIP)
+                debug_message "Skipped invalid URL: ${url:0:100}..."
+                ;;
+        esac
+        
+        # Real-time progress
+        if [[ $((TOTAL_URLS % 10)) -eq 0 ]]; then
+            debug_message "Progress: $TOTAL_URLS URLs checked, $ERROR_COUNT errors found"
+        fi
+    done
+    
+    if [[ $protected_count -gt 0 ]]; then
+        log_message "Found $protected_count protected pages"
+    fi
+    
+    log_message "Check complete: $TOTAL_URLS checked, $ERROR_COUNT errors"
+}

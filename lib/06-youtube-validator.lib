@@ -1,0 +1,133 @@
+# 06-youtube-validator.lib - YouTube Video Checking Functions
+check_youtube_videos_parallel() {
+    log_message "Checking YouTube videos"
+    
+    # Check for interruption
+    if is_interrupted; then
+        log_message "YouTube checking skipped due to interruption"
+        return
+    fi
+    
+    local -a youtube_urls=()
+    declare -A video_ids
+    
+    # Collect unique YouTube video IDs
+    for url in "${!ALL_DISCOVERED[@]}"; do
+        # Check for interruption in loop
+        if is_interrupted; then
+            break
+        fi
+        echo "$url" | grep -qE "$YOUTUBE_DOMAINS" || continue
+        
+        local video_id=""
+        if [[ "$url" =~ youtu\.be/([a-zA-Z0-9_-]+) ]]; then
+            video_id="${BASH_REMATCH[1]}"
+        elif [[ "$url" =~ [\?\&]v=([a-zA-Z0-9_-]+) ]]; then
+            video_id="${BASH_REMATCH[1]}"
+        elif [[ "$url" =~ /embed/([a-zA-Z0-9_-]+) ]]; then
+            video_id="${BASH_REMATCH[1]}"
+        fi
+        
+        if [[ -n "$video_id" ]] && [[ -z "${video_ids[$video_id]}" ]]; then
+            video_ids["$video_id"]="$url"
+            youtube_urls+=("$video_id|$url")
+        fi
+    done
+    
+    [[ ${#youtube_urls[@]} -eq 0 ]] && return
+    
+    log_message "Checking ${#youtube_urls[@]} YouTube videos"
+    
+    # Collect YouTube results in memory
+    local -a youtube_results=()
+    
+    # Check YouTube videos in parallel (with rate limiting and retry logic)
+    while IFS= read -r result_line; do
+        youtube_results+=("$result_line")
+    done < <(printf "%s\n" "${youtube_urls[@]}" | \
+    xargs -P 3 -I {} bash -c '
+        IFS="|" read -r video_id url <<< "$1"
+        oembed="https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${video_id}&format=json"
+        
+        # Retry logic - try up to configured attempts
+        max_attempts=$5
+        attempt=1
+        status=""
+
+        while [[ $attempt -le $max_attempts ]]; do
+            # Use simplified request for YouTube oEmbed API - does not need all browser headers
+            response=$("$2" \
+                -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36" \
+                -H "Accept: application/json" \
+                --compressed \
+                --location \
+                --max-redirs 10 \
+                --connect-timeout 15 \
+                --max-time 30 \
+                -s \
+                -w "\n__STATUS_CODE__%{http_code}" \
+                "$oembed" 2>/dev/null | tr -d '\''\0'\'')
+            status="${response##*__STATUS_CODE__}"
+            
+            # If successful, break out of retry loop
+            if [[ "$status" == "200" ]]; then
+                # Log if retry was successful (after initial failure)
+                if [[ "$4" == "true" ]] && [[ $attempt -gt 1 ]]; then
+                    if [[ -n "$6" ]]; then
+                        # Use centralized logging function
+                        source /ai-agent/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/lib/01-core-utilities.lib
+                        CURRENT_DOMAIN="$6" debug_message "YouTube check succeeded for $url on attempt $attempt/$max_attempts"
+                    fi
+                fi
+                break
+            fi
+
+            # Log retry attempts if debug is enabled
+            if [[ "$4" == "true" ]] && [[ $attempt -lt $max_attempts ]]; then
+                if [[ -n "$6" ]]; then
+                    # Use centralized logging function
+                    source /ai-agent/LinkChecker-Broken-Link-Finder-Email-Monitoring-Bash-Script/lib/01-core-utilities.lib
+                    CURRENT_DOMAIN="$6" debug_message "YouTube check failed for $url (attempt $attempt/$max_attempts, status: $status), retrying..."
+                fi
+            fi
+            
+            # Wait before retry (exponential backoff: 1s, 2s, 4s)
+            if [[ $attempt -lt $max_attempts ]]; then
+                sleep $((2 ** (attempt - 1)))
+            fi
+            
+            ((attempt++))
+        done
+        
+        # Report final result
+        if [[ "$status" != "200" ]]; then
+            # Include retry information in error message if all attempts failed
+            # Use language variable for error message
+            error_msg="${LANG_YOUTUBE_ERROR:-Video unavailable (HTTP ###status### after ###attempts### attempts)}"
+            error_msg="${error_msg//###status###/${status:-timeout}}"
+            error_msg="${error_msg//###attempts###/$max_attempts}"
+            echo "ERROR|$url|$error_msg"
+        else
+            echo "OK|$url|200"
+        fi
+        
+        # Rate limiting between different videos
+        sleep 1
+    ' bash "{}" "$CURL_IMPERSONATE_BINARY" "unused" "$DEBUG" "$YOUTUBE_MAX_RETRIES" "$CURRENT_DOMAIN")
+    
+    # Process results from array
+    for result_line in "${youtube_results[@]}"; do
+        IFS='|' read -r result url status <<< "$result_line"
+        ((YOUTUBE_URLS_CHECKED++))
+        if [[ "$result" == "ERROR" ]]; then
+            add_error_to_lists "$url" "$status" "${URL_PARENTS["$url"]:-}"
+            ((YOUTUBE_ERRORS++))
+            ERRORS_FOUND=true
+        fi
+    done
+    
+    log_message "YouTube check complete: $YOUTUBE_URLS_CHECKED checked, $YOUTUBE_ERRORS errors"
+}
+
+# Report Generation
+

@@ -1,0 +1,313 @@
+# 00-config-globals.lib - Global Configuration and Variables
+# BRANDING & WHITE-LABEL CONFIGURATION
+# Change these values to customize the script for your organization
+
+SCRIPT_NAME="YOURCOMPANY Linkchecker"
+SCRIPT_VERSION="3.0.0"
+LOGO_URL="https://www.YOURCOMPANY.ch/brandings/YOURCOMPANY-Logo.png"
+LOGO_ALT="YOURCOMPANY Linkchecker Logo"  # Alt text for logo image
+MAIL_SENDER="support@yourcompany.tld"
+MAIL_SENDER_NAME="YOURCOMPANY Support"
+
+# Theme Color Configuration
+# Change this single variable to customize the primary color throughout the report
+# Default: #832883 (purple)
+THEME_COLOR="#832883"
+
+# LANGUAGE TEMPLATES - GERMAN
+# Customize these texts for your email reports
+# Available placeholders:
+#   ###base_url### - The checked website URL
+#   ###cms_url###  - The CMS login URL
+#   ###max_urls### - The MAX_URLS limit value
+#   ###crawled_count### - Number of URLs crawled when MAX_URLS was reached
+#   ###discovered_count### - Total URLs discovered when MAX_URLS was reached
+
+LANG_DE_SUBJECT="Defekte Links auf der Website gefunden"
+LANG_DE_INTRO_TITLE="Fehlerhafte Links auf Ihrer Webseite entdeckt"
+LANG_DE_INTRO_TEXT="Die automatische Überprüfung Ihrer Webseite ###base_url### hat fehlerhafte Links erkannt. Bitte prüfen Sie den beigefügten Bericht. Die Behebung dieser Probleme erhöht die Qualität Ihrer Webseite.<br><br>Auf Wunsch unterstützen wir Sie bei der Korrektur (Verrechnung nach Aufwand).<br><br>Wir empfehlen, die Anpassungen selbst vorzunehmen, da der Kontext der Links oft nur Ihnen bekannt ist. Es kann unklar sein, ob ein Link entfernt, geändert oder z. B. als PDF lokal hochgeladen werden sollte, was häufig Rückfragen erfordert."
+LANG_DE_CMS_TITLE="CMS Login"
+LANG_DE_CMS_TEXT="Für das Beheben der Probleme können Sie sich unter folgendem Link einloggen: ###cms_url###"
+LANG_DE_SUMMARY_TITLE="Zusammenfassung"
+LANG_DE_DETAILS_TITLE="Detaillierter Fehlerbericht"
+LANG_DE_DURATION="Überprüfungsdauer"
+LANG_DE_TOTAL_URLS="Anzahl überprüfter URLs"
+LANG_DE_ERROR_URLS="URLs mit Fehlern"
+LANG_DE_DUPLICATE_ERRORS="Fehler doppelt geprüft"
+LANG_DE_FALSE_POSITIVES="Falsch-Positive entfernt"
+LANG_DE_YOUTUBE_CHECKED="YouTube URLs überprüft"
+LANG_DE_YOUTUBE_UNAVAILABLE="YouTube Videos nicht verfügbar"
+LANG_DE_SUCCESS_RATE="Erfolgsrate"
+LANG_DE_COLUMN_URL="Fehlerhafte URL"
+LANG_DE_COLUMN_ERROR="Fehler"
+LANG_DE_COLUMN_PARENT="Gefunden auf Seite"
+LANG_DE_FOOTER_TEXT="Generiert vom YOURCOMPANY Linkchecker"
+LANG_DE_CSS_NOTE="Orange Zeilen zeigen Fehler aus CSS-Dateien"
+LANG_DE_PROTECTION_TITLE="Seitenschutz erkannt - was bedeutet das?"
+LANG_DE_PROTECTION_TEXT="Einige Webseiten verwenden Schutzmechanismen (z.B. Cloudflare), die automatische Überprüfungen blockieren. Diese Seiten erscheinen als Fehler, sind aber für normale Besucher erreichbar. Sie müssen diese Links manuell im Browser überprüfen. Keinen Bericht mehr für Seitenschutz-Fehler erhalten? Antworten Sie auf diese E-Mail und teilen Sie uns dies kurz mit."
+LANG_DE_PROTECTION_DETECTED="(Seitenschutz erkannt)"
+LANG_DE_MAX_URLS_SUBJECT="Linkchecker hat die maximale URL-Grenze erreicht"
+LANG_DE_MAX_URLS_TITLE="Maximale URL-Grenze erreicht"
+LANG_DE_MAX_URLS_TEXT="Die automatische Überprüfung Ihrer Webseite ###base_url### musste nach Erreichen der maximalen URL-Grenze von ###max_urls### URLs gestoppt werden.<br><br><strong>Was wurde überprüft:</strong><br>• ###crawled_count### Seiten wurden erfolgreich durchsucht<br>• ###discovered_count### URLs wurden insgesamt gefunden<br>• Die Überprüfung wurde gestoppt, als das Limit von ###max_urls### URLs erreicht wurde<br><br><strong>Mögliche Ursachen:</strong><br>• Ihre Website ist sehr umfangreich<br>• Endlosschleifen in der URL-Struktur<br>• Dynamisch generierte URLs (z.B. Kalender, Filter)<br>• Sehr große Produktkataloge oder Archive<br><br><strong>Empfohlene Maßnahmen:</strong><br>• Überprüfen Sie die Website-Struktur auf sich wiederholende URL-Muster<br>• Schließen Sie unwichtige Bereiche vom Check aus (z.B. Kalender, Suchseiten)<br>• Erhöhen Sie bei Bedarf das URL-Limit für größere Websites"
+LANG_DE_URL_LOOP_TITLE="Achtung: Mögliche URL-Endlosschleife erkannt!"
+LANG_DE_URL_LOOP_TEXT="Auf Ihrer Webseite wurden URLs mit sich wiederholenden Mustern gefunden. Dies deutet auf ein technisches Problem hin, bei dem sich Links immer wieder selbst aufrufen, oder auf eine für Suchmaschinen (SEO) ungünstige Linkstruktur.<br><br><strong>Was bedeutet das für Sie?</strong><br>• Ihre Webseite könnte für Besucher verwirrend sein<br>• Suchmaschinen (wie Google) könnten Ihre Seite schlechter bewerten<br>• Die Webseite könnte langsamer werden<br>• Ihr Suchmaschinen-Ranking könnte sich verschlechtern<br><br><strong>Was sollten Sie tun?</strong><br>Überprüfen Sie die unten aufgelisteten URLs und passen Sie die Linkstruktur Ihrer Webseite an. Das Problem sollte zeitnah behoben werden, um die Funktionalität und Sichtbarkeit Ihrer Webseite zu gewährleisten. Bei Fragen können Sie sich gerne an uns wenden."
+LANG_DE_URL_LOOP_SUBJECT_SUFFIX=" - Potenzielle URL-Endlosschleife erkannt"
+LANG_DE_URL_LOOP_TABLE_HEADER="URLs mit wiederholendem Muster"
+LANG_DE_MALFORMED_URL_ERROR="Fehlerhaft formatierte URL (enthält führende/nachfolgende oder nicht kodierte Leerzeichen)"
+LANG_DE_YOUTUBE_ERROR="Video nicht verfügbar (HTTP ###status### nach ###attempts### Versuchen)"
+
+# LANGUAGE TEMPLATES - ENGLISH
+# Available placeholders:
+#   ###base_url### - The checked website URL
+#   ###cms_url###  - The CMS login URL
+#   ###max_urls### - The MAX_URLS limit value
+#   ###crawled_count### - Number of URLs crawled when MAX_URLS was reached
+#   ###discovered_count### - Total URLs discovered when MAX_URLS was reached
+
+LANG_EN_SUBJECT="Broken Links Found on Website"
+LANG_EN_INTRO_TITLE="Broken Links Discovered on Your Website"
+LANG_EN_INTRO_TEXT="The automated check of your website ###base_url### detected broken links. Please review the attached report. Fixing these issues will improve the quality of your website.<br><br>Upon request, we can assist with the corrections (charged based on effort).<br><br>We recommend making the adjustments yourself, as the context of the links is often only known to you. It may be unclear whether a link should be removed, modified, or, for example, saved as a PDF and uploaded locally, which frequently requires clarification."
+LANG_EN_CMS_TITLE="CMS Login"
+LANG_EN_CMS_TEXT="To fix these issues, you can log in at: ###cms_url###"
+LANG_EN_SUMMARY_TITLE="Summary"
+LANG_EN_DETAILS_TITLE="Detailed Error Report"
+LANG_EN_DURATION="Check Duration"
+LANG_EN_TOTAL_URLS="Total URLs Checked"
+LANG_EN_ERROR_URLS="URLs with Errors"
+LANG_EN_DUPLICATE_ERRORS="Duplicate Errors Checked"
+LANG_EN_FALSE_POSITIVES="False Positives Removed"
+LANG_EN_YOUTUBE_CHECKED="YouTube URLs Checked"
+LANG_EN_YOUTUBE_UNAVAILABLE="YouTube Videos Unavailable"
+LANG_EN_SUCCESS_RATE="Success Rate"
+LANG_EN_COLUMN_URL="Broken URL"
+LANG_EN_COLUMN_ERROR="Error"
+LANG_EN_COLUMN_PARENT="Found on Page"
+LANG_EN_FOOTER_TEXT="Generated by YOURCOMPANY Linkchecker"
+LANG_EN_CSS_NOTE="Orange rows show errors from CSS files"
+LANG_EN_PROTECTION_TITLE="Page protection detected - what does this mean?"
+LANG_EN_PROTECTION_TEXT="Some websites use protection mechanisms (e.g., Cloudflare) that block automated checks. These pages appear as errors but are accessible to normal visitors. You need to manually check these links in your browser. You do not want to receive reports about page protection errors anymore? Please answer on this email and let us know about it."
+LANG_EN_PROTECTION_DETECTED="(page protection detected)"
+LANG_EN_MAX_URLS_SUBJECT="Linkchecker reached maximum URL limit"
+LANG_EN_MAX_URLS_TITLE="Maximum URL Limit Reached"
+LANG_EN_MAX_URLS_TEXT="The automated check of your website ###base_url### had to be stopped after reaching the maximum URL limit of ###max_urls### URLs.<br><br><strong>What was checked:</strong><br>• ###crawled_count### pages were successfully crawled<br>• ###discovered_count### URLs were discovered in total<br>• The check was stopped when the limit of ###max_urls### URLs was reached<br><br><strong>Possible causes:</strong><br>• Your website is very large<br>• Infinite loops in the URL structure<br>• Dynamically generated URLs (e.g., calendars, filters)<br>• Very large product catalogs or archives<br><br><strong>Recommended actions:</strong><br>• Check the website structure for repeating URL patterns<br>• Exclude unimportant areas from checking (e.g., calendars, search pages)<br>• Consider increasing the URL limit for larger websites"
+LANG_EN_URL_LOOP_TITLE="Warning: Potential URL Infinite Loop Detected!"
+LANG_EN_URL_LOOP_TEXT="URLs with repeating patterns have been found on your website. This indicates a technical issue where links are repeatedly calling themselves, or an unfavorable link structure for search engine optimization (SEO).<br><br><strong>What does this mean for you?</strong><br>• Your website might be confusing for visitors<br>• Search engines (like Google) might rate your site lower<br>• The website might become slower<br>• Your search engine ranking could deteriorate<br><br><strong>What should you do?</strong><br>Review the URLs listed below and adjust your website's link structure. The issue should be resolved promptly to ensure your website's functionality and visibility. If you have any questions, feel free to contact us."
+LANG_EN_URL_LOOP_SUBJECT_SUFFIX=" - Potential URL Infinite Loop Detected"
+LANG_EN_URL_LOOP_TABLE_HEADER="URLs with Detected Loops"
+LANG_EN_MALFORMED_URL_ERROR="Malformed URL (contains leading/trailing or unencoded spaces)"
+LANG_EN_YOUTUBE_ERROR="Video unavailable (HTTP ###status### after ###attempts### attempts)"
+
+# TECHNICAL CONFIGURATION
+
+# Logging
+LOG_FILE="${LOG_FILE:-/var/log/linkchecker.log}"
+DEBUG="${DEBUG:-false}"
+
+# Performance Settings
+PARALLEL_WORKERS="${PARALLEL_WORKERS:-50}"  # Number of parallel URL checks
+BATCH_SIZE="${BATCH_SIZE:-100}"             # URLs to process per batch
+CONNECTION_CACHE_SIZE="${CONNECTION_CACHE_SIZE:-10000}"  # Curl connection cache
+
+# Protection Detection Settings
+INCLUDE_PROTECTED_IN_REPORT="${INCLUDE_PROTECTED_IN_REPORT:-true}"  # Set to false to exclude protected pages from email reports
+
+# CSS Error Handling
+# When CSS files contain broken links, these require developer intervention rather than
+# customer action. Enable this feature to automatically redirect reports containing
+# CSS errors to the web administrator instead of the customer.
+REDIRECT_CSS_ERRORS_TO_ADMIN="${REDIRECT_CSS_ERRORS_TO_ADMIN:-true}"  # Redirect reports with CSS errors to admin
+CSS_ERROR_ADMIN_EMAIL="${CSS_ERROR_ADMIN_EMAIL:-yoursupportmail@yourcompany.tld}"  # Admin email for CSS error reports
+
+# HTTP Settings
+CRAWL_METHOD="GET"  # Must be GET to extract links from HTML
+CURL_TIMEOUT="${CURL_TIMEOUT:-10}"  # Connection timeout in seconds
+CURL_MAX_REDIRECTS=10
+CRAWL_MAX_RETRIES="${CRAWL_MAX_RETRIES:-3}"  # Number of retries for failed requests
+CRAWL_RETRY_DELAY="${CRAWL_RETRY_DELAY:-2}"  # Base delay in seconds between retries (uses exponential backoff)
+REQUEST_DELAY="${REQUEST_DELAY:-0}"
+# Worker timeout: should accommodate worst-case scenario (max retries with delays)
+# Formula: (CURL_TIMEOUT + 5) * CRAWL_MAX_RETRIES + (CRAWL_RETRY_DELAY * (CRAWL_MAX_RETRIES - 1)) + buffer
+WORKER_TIMEOUT="${WORKER_TIMEOUT:-30}"  # Maximum time for a single URL check worker
+
+# Paths
+SENDMAIL_BINARY="/usr/sbin/sendmail"
+CURL_IMPERSONATE_BINARY="${CURL_IMPERSONATE_BINARY:-./curl/curl-impersonate-chrome}"
+
+# URL Limits. "-1" = unlimited. Recommended to set a limit to prevent problems in case of an endless URL loop
+MAX_DEPTH="${MAX_DEPTH:-50}"
+MAX_URLS="${MAX_URLS:-5000}"
+MAX_URL_LENGTH="${MAX_URL_LENGTH:-2000}"  # Maximum URL length to process
+
+# URL Loop Detection Settings
+# These settings help identify problematic URL structures that indicate infinite loops or 
+# poor site architecture. The detection algorithm checks for:
+# 1. Consecutive repetitions: /page/page/page/ (same segment repeating)
+# 2. Pattern repetitions: /A/B/A/B/A/B/ (pattern of segments repeating)
+# 3. Suspicious repetitions: Multiple instances with regular intervals suggesting loops
+# When loops are detected, a warning is added to the report with examples and the email
+# subject is modified to alert administrators about potential SEO and usability issues.
+#
+# URL_LOOP_THRESHOLD: How many times a segment/pattern must repeat to be flagged as a loop
+#   - Value of 2: Flags /home/home/ or /about/services/about/services/ (2 repetitions)
+#   - Value of 3: Only flags /home/home/home/ or patterns repeating 3+ times
+#   - Lower values (2) catch more potential issues but may have false positives
+#   - Higher values (4-5) reduce false positives but might miss some loops
+URL_LOOP_THRESHOLD="${URL_LOOP_THRESHOLD:-2}"  # Number of repetitions to consider as a loop
+#
+# URL_LOOP_MIN_SEGMENTS: Minimum path segments required before checking for loops
+#   - Value of 3: Only checks URLs with 3+ segments like /a/b/c/ (ignores /a/ or /a/b/)
+#   - Value of 4: Only checks URLs with 4+ segments like /a/b/c/d/
+#   - This prevents false positives on short URLs where repetition might be intentional
+#   - Example: With value 3, /products/products/ won't be checked (only 2 segments)
+#            but /products/category/products/ will be checked (3 segments)
+URL_LOOP_MIN_SEGMENTS="${URL_LOOP_MIN_SEGMENTS:-2}"  # Minimum URL segments to check for loops
+#
+# URL_LOOP_ENABLE_WARNING: Enable URL loop warning in reports
+#   - Set to true to show URL loop warnings in reports (default)
+#   - Set to false if you have intentional URL patterns that trigger false positives
+URL_LOOP_ENABLE_WARNING="${URL_LOOP_ENABLE_WARNING:-true}"  # Enable URL loop warning box
+
+# MAX_URLS Notification Settings
+SEND_REPORT_ON_MAX_URLS_REACHED="${SEND_REPORT_ON_MAX_URLS_REACHED:-true}"  # Send notification when MAX_URLS is reached
+MAX_URLS_ADMIN_EMAIL="${MAX_URLS_ADMIN_EMAIL:-yoursupportmail@yourcompany.tld}"  # Email for MAX_URLS notifications
+
+# YouTube
+YOUTUBE_DOMAINS='youtube\.com|youtu\.be|youtube-nocookie\.com|yt\.be'
+YOUTUBE_OEMBED_DELAY=1
+YOUTUBE_MAX_RETRIES="${YOUTUBE_MAX_RETRIES:-3}"  # Maximum retry attempts for YouTube API checks
+
+# Exclude patterns
+EXCLUDES=(
+    "\/xmlrpc\.php"
+    "\/wp-json\/"
+    "\/feed\/"
+    "\?p=[0-9]+"
+    "bootstrap\.min\.css"
+    "googletagmanager\.com"
+    "(google\.com|goo\.gl)\/(recaptcha|maps)"
+    "bootstrap\.css"
+    "font-awesome\.min\.css"
+    "leaflet\.css"
+    "acf-osm-leaflet\.css"
+    "owl\.carousel\.css"
+    "advanced-slider-base\.css"
+    "jquery\.bxslider\.css"
+    "jquery\.mCustomScrollbar\.css"
+    "jquery\.fancybox\.css"
+    "jquery\.fancybox-buttons\.css"
+    "jquery\.mCustomScrollbar\.min\.css"
+    "jquery-ui\.css"
+    "fonts/icomoon/fonts/icomoon"
+)
+
+# Skip these rel types
+SKIP_REL_TYPES=(
+    "preconnect"
+    "dns-prefetch"
+    "pingback"
+    "webmention"
+    "edituri"
+    "wlwmanifest"
+    "profile"
+)
+
+# Custom HTML attributes to check for URLs
+# The script will extract URLs from these attributes and validate them
+# Users can add any HTML attribute here that might contain URLs
+# Examples: "data-href", "data-url", "ng-href", "formaction", "data-src", etc.
+# Note: Attribute matching is case-sensitive
+CUSTOM_ATTR_INCLUDES=(
+    "data-href"        # Common attribute for storing URLs in JavaScript applications (e.g. in modal windows)
+    "data-src"         # Common attribute for storing URLs in JavaScript applications (e.g. in image galleries)
+    "data-url"         # Common attribute for storing URLs in JavaScript applications (e.g. in custom widgets)
+    "data-link"        # Common attribute for storing URLs in JavaScript applications (e.g. in custom widgets)
+    "ng-href"          # Angular framework attribute for defining URLs in HTML templates
+    "ng-src"           # Angular framework attribute for defining URLs in HTML templates (e.g. for images)
+)
+
+# Binary file extensions pattern (case-insensitive regex)
+# These file types will be deferred to parallel checking phase for efficiency
+# Extensions are alphabetically sorted for easy maintenance
+# Note: Includes actual binary files plus code files we don't want to parse for URLs (js, json, xml, etc.)
+# CSS files are NOT included here as they have special handling to extract URLs from them
+BINARY_FILE_EXTENSIONS="(3gp|7z|aac|ai|aif|aiff|apk|app|avi|avif|bin|bmp|bz2?|cab|class|csv|dat|db|deb|dmg|doc|docx|dll|dtd|dvi|ear|eot|eps|exe|flac|flv|gif|gz|heic|heif|ico|img|iso|jar|jpe?g|js|json|log|m4a|m4v|map|md|mdb|mid|midi|min\.css|min\.js|mkv|mov|mp3|mp4|mpe?g|msi|odf|odg|odp|ods|odt|ogg|otf|pak|pdf|pkg|png|ppt|pptx|psd|py|pyc|qt|ra|ram|rar|rpm|rtf|sass|scss|sh|sig|sketch|so|sql|sqlite|svg|swf|tar|tga|tiff?|ts|ttc|ttf|txt|vob|war|wav|wasm|webm|webp|wmf|wmv|woff2?|xls|xlsx|xml|xpi|xz|yaml|yml|zip)"
+
+# Single page scan mode
+SINGLE_PAGE_SCAN=""
+SINGLE_PAGE_MODE=false
+
+# Global interrupt flag
+INTERRUPTED=false
+
+# Optimized data structures
+declare -A VISITED_URLS
+declare -A QUEUED_URLS
+declare -A ALL_DISCOVERED
+declare -A URL_PARENTS
+declare -A URL_STATUS
+declare -A ERROR_URLS
+declare -A CHECKED_CACHE      # Cache for already checked URLs with their status
+declare -A URL_MIME_TYPES     # Store MIME types for URLs
+
+# Arrays for final report
+declare -a ERROR_URL_LIST=()
+declare -a ERROR_TEXT_LIST=()
+declare -a ERROR_PARENT_LIST=()
+declare -a DYNAMIC_EXCLUDES=()
+declare -a REMAINING_ARGS=()
+declare -a EXCLUDED_URL_LIST=()  # Track excluded URLs for debug summary
+declare -a URL_LOOP_PATTERNS=()  # Track detected URL loop patterns
+declare -A URL_LOOP_EXAMPLES=()  # Examples of URLs with loops
+declare -a URL_LOOP_ALL_URLS=()  # All URLs where loops were detected
+
+# Counters
+TOTAL_URLS=0
+ERROR_COUNT=0
+EXCLUDED_URLS=0
+CHECK_DURATION=0
+ERRORS_FOUND=false
+YOUTUBE_URLS_CHECKED=0
+YOUTUBE_ERRORS=0
+CSS_ERRORS_FOUND=false  # Track if any errors were found in CSS files
+MAX_URLS_REACHED=false  # Track if MAX_URLS limit was reached
+MAX_URLS_CRAWLED_COUNT=0  # Number of URLs crawled when MAX_URLS was reached
+MAX_URLS_DISCOVERED_COUNT=0  # Number of URLs discovered when MAX_URLS was reached
+URL_LOOPS_DETECTED=false  # Track if URL loops were detected
+
+# Global domain for logging
+CURRENT_DOMAIN=""
+
+# Language strings (initialized empty, set by set_language_texts)
+LANG_SUBJECT=""
+LANG_INTRO_TITLE=""
+LANG_INTRO_TEXT=""
+LANG_CMS_TITLE=""
+LANG_CMS_TEXT=""
+LANG_SUMMARY_TITLE=""
+LANG_DETAILS_TITLE=""
+LANG_DURATION=""
+LANG_TOTAL_URLS=""
+LANG_ERROR_URLS=""
+LANG_DUPLICATE_ERRORS=""
+LANG_FALSE_POSITIVES=""
+LANG_YOUTUBE_CHECKED=""
+LANG_YOUTUBE_UNAVAILABLE=""
+LANG_SUCCESS_RATE=""
+LANG_COLUMN_URL=""
+LANG_COLUMN_ERROR=""
+LANG_COLUMN_PARENT=""
+LANG_FOOTER_TEXT=""
+LANG_CSS_NOTE=""
+LANG_PROTECTION_DETECTED=""
+LANG_PROTECTION_TITLE=""
+LANG_PROTECTION_TEXT=""
+LANG_MAX_URLS_SUBJECT=""
+LANG_MAX_URLS_TITLE=""
+LANG_MAX_URLS_TEXT=""
+LANG_URL_LOOP_TITLE=""
+LANG_URL_LOOP_TEXT=""
+LANG_URL_LOOP_SUBJECT_SUFFIX=""
+LANG_URL_LOOP_TABLE_HEADER=""
+LANG_MALFORMED_URL_ERROR=""
+LANG_YOUTUBE_ERROR=""
+

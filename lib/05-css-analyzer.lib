@@ -1,0 +1,17 @@
+# 05-css-analyzer.lib - CSS File Analysis Functions
+extract_urls_from_css() {
+    local css_content="$1"
+    local css_url="$2"
+    
+    # Optimized CSS URL extraction
+    echo "$css_content" | grep -oE 'url\([^)]+\)' | sed 's/url(//; s/)//; s/["'"'"']//g' | while IFS= read -r url; do
+        # Remove trailing backslash if present (HTML escaping artifact)
+        url="${url%\\}"
+        [[ -z "$url" || "$url" =~ ^data: ]] && continue
+        local normalized=$(normalize_url "$url" "$css_url")
+        [[ -n "$normalized" ]] && [[ "$normalized" =~ ^https?:// ]] && is_url_valid "$normalized" && echo "$normalized"
+    done
+}
+
+# Optimized HTTP Functions with Connection Pooling
+

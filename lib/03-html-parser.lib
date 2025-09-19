@@ -1,0 +1,421 @@
+# 03-html-parser.lib - HTML Parsing and URL Extraction Functions
+extract_urls_from_html_optimized() {
+    local html_content="$1"
+    local base_url="$2"
+    
+    # Build skip rel types pattern for awk
+    local skip_rel_pattern=""
+    for rel in "${SKIP_REL_TYPES[@]}"; do
+        [[ -n "$skip_rel_pattern" ]] && skip_rel_pattern="${skip_rel_pattern}|"
+        skip_rel_pattern="${skip_rel_pattern}${rel}"
+    done
+    
+    # Build custom attribute inclusion pattern for awk
+    # This pattern will be used to identify which attributes to extract URLs from
+    local include_attr_pattern=""
+    for attr in "${CUSTOM_ATTR_INCLUDES[@]}"; do
+        [[ -n "$include_attr_pattern" ]] && include_attr_pattern="${include_attr_pattern}|"
+        include_attr_pattern="${include_attr_pattern}${attr}"
+    done
+    
+    # Clean binary data and ensure UTF-8 encoding
+    # Use perl if available (much faster than awk for regex-heavy operations), otherwise use awk
+    if command -v perl >/dev/null 2>&1; then
+        # Perl implementation - significantly faster for large HTML
+        echo "$html_content" | tr -d '\0' | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | perl -ne '
+            BEGIN {
+                $base = $ENV{BASE_URL} || "'"$base_url"'";
+                $skip_rels = $ENV{SKIP_REL_PATTERN} || "'"$skip_rel_pattern"'";
+                $include_attrs = $ENV{INCLUDE_ATTR_PATTERN} || "'"$include_attr_pattern"'";
+                $debug = $ENV{DEBUG} || "'"$DEBUG"'";
+                %seen = ();
+            }
+
+            sub normalize {
+                my ($url, $base_url) = @_;
+
+                # Trim leading and trailing spaces first
+                $url =~ s/^\s+//;
+                $url =~ s/\s+$//;
+
+                # Remove fragment
+                $url =~ s/#.*$//;
+                # Replace remaining spaces with %20
+                $url =~ s/ /%20/g;
+
+                # Skip non-http
+                return "" if $url =~ /^[a-zA-Z]+:/ && $url !~ /^https?:\/\//;
+
+                # Handle different URL types
+                if ($url =~ /^https?:\/\//) {
+                    return $url;
+                } elsif ($url =~ /^\/\//) {
+                    my ($proto) = $base_url =~ /^(\w+):/;
+                    return "$proto:$url";
+                } elsif ($url =~ /^\//) {
+                    my ($domain) = $base_url =~ /^(https?:\/\/[^\/]+)/;
+                    return "$domain$url";
+                } else {
+                    my $temp_base = $base_url;
+                    # Check if base has a path after the domain
+                    if ($temp_base =~ /^(https?:\/\/[^\/]+)(\/.*)?$/) {
+                        my $domain_part = $1;
+                        my $path_part = $2 || "";
+
+                        # If path ends with a file, remove it
+                        if ($path_part =~ /\/[^\/]+\.[^\/]+$/) {
+                            $path_part =~ s/\/[^\/]+$/\//;
+                        } elsif ($path_part eq "" || $path_part !~ /\/$/) {
+                            # Add trailing slash if missing
+                            $path_part .= "/";
+                        }
+                        $temp_base = $domain_part . $path_part;
+                    }
+                    return "$temp_base$url";
+                }
+            }
+
+            # Extract all URLs in one pass (excluding srcset which is handled via custom attributes)
+            # Use proper boundaries to ensure we match exact attribute names, not suffixes like data-action
+            # Match only when preceded by whitespace or > to avoid matching compound attributes
+            # Note: Skip href extraction here for <link> tags - they are handled separately below with rel filtering
+            # First, remove all <link> tags from the content to avoid double-processing
+            my $content_without_links = $_;
+            $content_without_links =~ s/<link[^>]*>//gi;
+
+            while ($content_without_links =~ /(^|[\s>])(href|src|action|poster)=["'"'"']([^"'"'"']*?)["'"'"']/gi) {
+                my $attr = $2;  # Now second capture group since we added (^|[\s>])
+                my $url = $3;   # Now third capture group
+
+                # Remove trailing backslash if present (HTML escaping artifact)
+                $url =~ s/\\$//;
+
+                # Skip URLs containing HTML comment artifacts
+                next if $url =~ /<!--/;
+                next if $url =~ /-->/;
+                next if $url =~ /^<!/;
+                next if $url =~ />$/;
+
+                # Skip certain protocol URLs first (before space checking)
+                # Note: tel: URLs can legitimately contain spaces in phone numbers
+                # But mailto: URLs should still be checked for malformed spaces
+                next if $url =~ /^(#|tel:|javascript:|data:)/;
+
+                # Check for leading or trailing whitespace after protocol check
+                if ($url =~ /^\s/ || $url =~ /\s$/) {
+                    # Debug: show the URL exactly as extracted
+                    if ($ENV{DEBUG} eq "true") {
+                        use POSIX qw(strftime);
+                        my $timestamp = strftime("%Y-%m-%d %H:%M:%S", localtime);
+                        my $domain = $ENV{CURRENT_DOMAIN} || "";
+                        my $prefix = $domain ? "[$domain] " : "";
+                        print STDERR "[$timestamp] ${prefix}DEBUG: Malformed URL with leading/trailing spaces detected: [$url]\n";
+                    }
+                    # Output JUST the raw href value exactly as found, no processing
+                    print "MALFORMED|$url\n";
+                    next;
+                }
+
+                # Check for spaces in the middle of the URL
+                if ($url =~ /\s/) {
+                    if ($ENV{DEBUG} eq "true") {
+                        use POSIX qw(strftime);
+                        my $timestamp = strftime("%Y-%m-%d %H:%M:%S", localtime);
+                        my $domain = $ENV{CURRENT_DOMAIN} || "";
+                        my $prefix = $domain ? "[$domain] " : "";
+                        print STDERR "[$timestamp] ${prefix}DEBUG: Malformed URL with embedded spaces detected: [$url]\n";
+                    }
+                    print "MALFORMED|$url\n";
+                    next;
+                }
+
+                # Skip mailto: URLs after space checking (they should not have spaces)
+                next if $url =~ /^mailto:/;
+
+                my $normalized = normalize($url, $base);
+
+                print "$normalized\n" if $normalized && $normalized =~ /^https?:\/\// && !$seen{$normalized}++;
+            }
+
+            # Handle custom attributes if specified
+            if ($include_attrs) {
+                foreach my $attr (split /\|/, $include_attrs) {
+                    my $regex = qr/\b$attr=["'"'"'](.*?)["'"'"']/i;
+                    while (/$regex/g) {
+                        my $url = $1;
+
+                        # Remove trailing backslash if present (HTML escaping artifact)
+                        $url =~ s/\\$//;
+
+                        # Special handling for srcset and ng-srcset
+                        if ($attr =~ /srcset$/i) {
+                            # Report srcset with spaces as malformed
+                            if ($url =~ /\s/) {
+                                print "MALFORMED|$url\n";
+                                next;
+                            }
+                            foreach my $item (split /,/, $url) {
+                                $item =~ s/^\s+|\s+$//g;
+                                my ($src_url) = split /\s+/, $item;
+                                next if $src_url =~ /^(#|mailto:|tel:|javascript:|data:)/;
+                                my $normalized = normalize($src_url, $base);
+                                print "$normalized\n" if $normalized && $normalized =~ /^https?:\/\// && !$seen{$normalized}++;
+                            }
+                        } else {
+                            next unless $url =~ /^(\/|https?:\/\/|\.\/)/;
+                            next if $url =~ /^(#|mailto:|tel:|javascript:|data:)/;
+                            my $normalized = normalize($url, $base);
+                            print "$normalized\n" if $normalized && $normalized =~ /^https?:\/\// && !$seen{$normalized}++;
+                        }
+                    }
+                }
+            }
+
+            # Handle link tags with rel filtering
+            while (/<link[^>]*>/gi) {
+                my $tag = $&;
+                # Check if this link has a rel attribute we should skip
+                if ($skip_rels && $tag =~ /rel=["'"'"'](.*?)["'"'"']/) {
+                    my $rel = $1;
+                    next if $rel =~ /$skip_rels/;
+                }
+                # Extract href from this link tag
+                if ($tag =~ /href=["'"'"'](.*?)["'"'"']/) {
+                    my $url = $1;
+                    # Remove trailing backslash if present (HTML escaping artifact)
+                    $url =~ s/\\$//;
+                    next if $url =~ /^(#|mailto:|tel:|javascript:|data:)/;
+                    my $normalized = normalize($url, $base);
+                    print "$normalized\n" if $normalized && $normalized =~ /^https?:\/\// && !$seen{$normalized}++;
+                }
+            }
+        ' | while IFS= read -r url; do
+            # Remove trailing backslash if present (HTML escaping artifact)
+            url="${url%\\}"
+            # Pass through MALFORMED URLs directly
+            if [[ "$url" =~ ^MALFORMED\| ]]; then
+                echo "$url"
+            elif is_url_valid "$url"; then
+                # Post-process to filter out bad URLs
+                echo "$url"
+            fi
+        done
+    else
+        # Fallback to awk implementation
+        echo "$html_content" | tr -d '\0' | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | awk -v base="$base_url" -v skip_rels="$skip_rel_pattern" -v include_attrs="$include_attr_pattern" -v debug="$DEBUG" '
+    function normalize(url, base_url,    local_base) {
+        # Use local variable to avoid modifying original
+        local_base = base_url
+
+        # Trim leading and trailing spaces first
+        gsub(/^[[:space:]]+/, "", url)
+        gsub(/[[:space:]]+$/, "", url)
+
+        # Remove fragment
+        gsub(/#.*$/, "", url)
+
+        # Skip non-http
+        if (url ~ /^[a-zA-Z]+:/ && match(url, /^https?:\/\//) == 0) {
+            return ""
+        }
+
+        # Handle different URL types
+        if (url ~ /^https?:\/\//) {
+            return url
+        } else if (url ~ /^\/\//) {
+            split(local_base, parts, "://")
+            return parts[1] ":" url
+        } else if (url ~ /^\//) {
+            split(local_base, parts, "/")
+            return parts[1] "//" parts[3] url
+        } else {
+            # Handle relative URLs
+            # If base has a file component (not ending in /), remove it
+            if (local_base ~ /\/[^\/]+\.[^\/]+$/) {
+                sub(/\/[^\/]*$/, "/", local_base)
+            } else {
+                # Only add slash if base does not end with one
+                if (substr(local_base, length(local_base)) != "/") {
+                    local_base = local_base "/"
+                }
+            }
+            return local_base url
+        }
+    }
+
+    {
+        # For link tags, check rel attribute
+        while (match($0, /<link[^>]*>/, link_tag)) {
+            tag = link_tag[0]
+            $0 = substr($0, RSTART + RLENGTH)
+
+            # Check if this link has a rel attribute we should skip
+            if (match(tag, /rel=["\047]([^"\047]*)["\047]/, rel_arr)) {
+                rel_value = rel_arr[1]
+                if (skip_rels != "" && match(rel_value, skip_rels)) {
+                    continue  # Skip this link tag
+                }
+            }
+
+            # Extract href from this link tag
+            if (match(tag, /href=["\047]([^"\047]*)["\047]/, href_arr)) {
+                url = href_arr[1]
+                # Remove trailing backslash if present (HTML escaping artifact)
+                gsub(/\\$/, "", url)
+                # Check for spaces BEFORE normalization (leading, trailing, or embedded)
+                if (url ~ /^\s|\s$| /) {
+                    print "MALFORMED|" url
+                } else if (url && match(url, /^(#|mailto:|tel:|javascript:|data:)/) == 0) {
+                    normalized = normalize(url, base)
+                    if (normalized != "" && normalized ~ /^https?:\/\//) {
+                        print normalized
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        # Extract other URL patterns (non-link tags)
+        # Note: Only extract from specific attributes that actually contain URLs
+        # Use proper boundaries to ensure we match exact attribute names only
+        # Extract from standard attributes (but not data-action, ng-action, etc.)
+        # The negative lookbehind ensures we do not match when preceded by a hyphen or letter
+        # We match the attribute name directly after a space or tag opening
+        while (match($0, /([[:space:]>])(src|action|poster)=["\047]([^"\047]*)["\047]/)) {
+            # Check if this is really a standalone attribute, not part of data-action or similar
+            # Check what comes immediately before the space/> character (arr[1])
+            if (RSTART > 1) {
+                char_before_space = substr($0, RSTART - 1, 1)
+                # If there is a letter or hyphen before the space, this means we are matching
+                # something like "data-action" where the space is before "data"
+                # In this case, skip this match
+                if (char_before_space ~ /[a-zA-Z-]/) {
+                    $0 = substr($0, RSTART + 1)
+                    continue
+                }
+            }
+            # Extract URL from the matched string
+            matched = substr($0, RSTART, RLENGTH)
+            # Remove everything before the = sign and quotes
+            sub(/^[^=]*=["\047]/, "", matched)
+            sub(/["\047].*$/, "", matched)
+            url = matched
+            # Remove trailing backslash if present (HTML escaping artifact)
+            gsub(/\\$/, "", url)
+            # Check for spaces BEFORE normalization (leading, trailing, or embedded)
+            if (url ~ /^\s|\s$| /) {
+                print "MALFORMED|" url
+            } else if (url && url !~ /^(#|mailto:|tel:|javascript:|data:)/) {
+                normalized = normalize(url, base)
+                if (normalized != "" && normalized ~ /^https?:\/\//) {
+                    print normalized
+                }
+            }
+            $0 = substr($0, RSTART + RLENGTH)
+        }
+
+        # Extract URLs from custom attributes listed in CUSTOM_ATTR_INCLUDES
+        if (include_attrs != "") {
+            # Build regex pattern for included attributes
+            split(include_attrs, attrs_array, "|")
+            for (i in attrs_array) {
+                attr = attrs_array[i]
+                # Escape special regex characters in attribute name
+                gsub(/[\.\+\*\?\[\]\(\)\{\}\^\$\|\\]/, "\\\\&", attr)
+                # Match this specific attribute with exact name boundaries
+                # The attribute must be followed directly by = without any other characters
+                regex = "(^|[[:space:]>])" attr "=[\"\\047]([^\"\\047]*)[\"\\047]"
+                while (match($0, regex)) {
+                    # Extract URL from matched string
+                    matched_str = substr($0, RSTART, RLENGTH)
+                    sub(/^[^=]*=["\047]/, "", matched_str)
+                    sub(/["\047].*$/, "", matched_str)
+                    url = matched_str
+                    # Remove trailing backslash if present (HTML escaping artifact)
+                    gsub(/\\$/, "", url)
+                    if (debug == "true") {
+                        print "[DEBUG] Found custom attribute: " attr "=\"" url "\"" > "/dev/stderr"
+                    }
+                    # Check for spaces BEFORE normalization (leading, trailing, or embedded)
+                    if (url ~ /^\s|\s$| /) {
+                        print "MALFORMED|" url
+                    } else if (url ~ /^(\/|https?:\/\/|\.\/)/) {
+                        # Only process if it really looks like a URL
+                        # Must start with /, http://, https://, or ./ or ../
+                        normalized = normalize(url, base)
+                        if (normalized != "" && normalized ~ /^https?:\/\//) {
+                            print normalized
+                        }
+                    }
+                    $0 = substr($0, RSTART + RLENGTH)
+                }
+            }
+        }
+
+        # Extract href from non-link tags (a, area, etc)
+        while (match($0, /<(a|area)([[:space:]][^>]*)?href=["\047]([^"\047]*)["\047]/)) {
+            # Extract URL from the matched string
+            matched = substr($0, RSTART, RLENGTH)
+            # Remove everything before the = sign and quotes
+            sub(/^[^=]*=["\047]/, "", matched)
+            sub(/["\047].*$/, "", matched)
+            url = matched
+            # Remove trailing backslash if present (HTML escaping artifact)
+            gsub(/\\$/, "", url)
+            # Check for spaces BEFORE normalization (leading, trailing, or embedded)
+            if (url ~ /^\s|\s$| /) {
+                print "MALFORMED|" url
+            } else if (url && url !~ /^(#|mailto:|tel:|javascript:|data:)/) {
+                normalized = normalize(url, base)
+                if (normalized != "" && normalized ~ /^https?:\/\//) {
+                    print normalized
+                }
+            }
+            $0 = substr($0, RSTART + RLENGTH)
+        }
+
+        # Extract srcset URLs ONLY if included in custom attributes
+        if (include_attrs ~ /srcset/) {
+            while (match($0, /(^|[[:space:]>])srcset=["\047]([^"\047]*)["\047]/)) {
+                # Extract srcset value
+                matched = substr($0, RSTART, RLENGTH)
+                sub(/^.*srcset=["\047]/, "", matched)
+                sub(/["\047].*$/, "", matched)
+                srcset_value = matched
+                # Remove trailing backslash if present (HTML escaping artifact)
+                gsub(/\\$/, "", srcset_value)
+                # Check for spaces in srcset value (malformed)
+                if (index(srcset_value, " ") > 0) {
+                    print "MALFORMED|" srcset_value
+                } else {
+                    split(srcset_value, urls, ",")
+                    for (i in urls) {
+                        gsub(/^[[:space:]]+|[[:space:]]+$/, "", urls[i])
+                        split(urls[i], parts, " ")
+                        url = parts[1]
+                        if (url && match(url, /^(#|mailto:|tel:|javascript:|data:)/) == 0) {
+                            normalized = normalize(url, base)
+                            if (normalized != "" && normalized ~ /^https?:\/\//) {
+                                print normalized
+                            }
+                        }
+                    }
+                }
+                $0 = substr($0, RSTART + RLENGTH)
+            }
+        }
+    }' | sort -u | while IFS= read -r url; do
+        # Remove trailing backslash if present (HTML escaping artifact)
+        url="${url%\\}"
+        # Pass through MALFORMED URLs directly
+        if [[ "$url" =~ ^MALFORMED\| ]]; then
+            echo "$url"
+        elif is_url_valid "$url"; then
+            # Post-process to filter out bad URLs
+            echo "$url"
+        fi
+    done
+    fi
+}
+

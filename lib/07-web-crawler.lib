@@ -1,0 +1,416 @@
+# 07-web-crawler.lib - Website Crawling Functions
+crawl_website() {
+    local base_url="$1"
+    local max_depth="$2"
+    
+    # Extract domain for progress messages
+    local domain=$(extract_domain "$base_url")
+    
+    log_message "Starting crawl: $base_url (MAX_URLS limit: $MAX_URLS)"
+    
+    if [[ "$DEBUG" == "true" ]]; then
+        debug_message "MAX_URLS value: '$MAX_URLS', Type check: -ne -1 = $([ "$MAX_URLS" -ne -1 ] && echo true || echo false)"
+    fi
+    
+    # Use in-memory arrays instead of temp files
+    local -a crawl_queue=()
+    local -A crawl_visited=()
+    
+    # Initialize queue with base URL
+    crawl_queue+=("$base_url|0|$base_url")
+    
+    local crawled=0
+    local discovered_count=0
+    
+    while [[ ${#crawl_queue[@]} -gt 0 ]]; do
+        # Check for interrupt
+        if is_interrupted; then
+            debug_message "Crawling interrupted by user"
+            break
+        fi
+        
+        # Check if we've reached the MAX_URLS limit based on discovered URLs
+        if [[ "$MAX_URLS" -ne -1 && "${#ALL_DISCOVERED[@]}" -ge "$MAX_URLS" ]]; then
+            log_message "Reached MAX_URLS limit ($MAX_URLS discovered URLs), stopping crawl"
+            MAX_URLS_REACHED=true
+            MAX_URLS_CRAWLED_COUNT="$crawled"
+            MAX_URLS_DISCOVERED_COUNT="${#ALL_DISCOVERED[@]}"
+            
+            # In debug mode, show what was in the queue when limit hit
+            if [[ "$DEBUG" == "true" ]]; then
+                debug_message "=== MAX_URLS LIMIT REACHED ==="
+                debug_message "Crawled pages: $crawled"
+                debug_message "Discovered URLs: ${#ALL_DISCOVERED[@]}"
+                debug_message "Current URL being processed: $url"
+                debug_message "URLs remaining in queue: ${#crawl_queue[@]}"
+                
+                # Show first few URLs in queue to identify patterns
+                debug_message "Sample of queued URLs (first 10):"
+                local queue_count=0
+                for queue_entry in "${crawl_queue[@]}"; do
+                    [[ $queue_count -ge 10 ]] && break
+                    IFS='|' read -r queued_url queued_depth queued_parent <<< "$queue_entry"
+                    debug_message "  - $queued_url (depth: $queued_depth)"
+                    ((queue_count++))
+                done
+                
+                # Check for repetitive patterns in discovered URLs
+                debug_message "Checking for URL patterns..."
+                local pattern_count=0
+                for discovered_url in "${!ALL_DISCOVERED[@]}"; do
+                    if [[ "$discovered_url" =~ /[0-9]+/[0-9]+$ ]]; then
+                        ((pattern_count++))
+                        if [[ "$pattern_count" -le 5 ]]; then
+                            debug_message "  Pattern found: $discovered_url"
+                        fi
+                    fi
+                done
+                if [[ "$pattern_count" -gt 5 ]]; then
+                    debug_message "  ... and $((pattern_count - 5)) more URLs with numeric patterns"
+                fi
+            fi
+            
+            break
+        fi
+        
+        # Get next URL from queue
+        local queue_item="${crawl_queue[0]}"
+        crawl_queue=("${crawl_queue[@]:1}")
+        IFS='|' read -r url depth parent <<< "$queue_item"
+        
+        # Skip if already visited
+        [[ -n "${crawl_visited["$url"]}" ]] && continue
+        crawl_visited["$url"]=1
+        
+        # Track in memory structures
+        VISITED_URLS["$url"]=1
+        ALL_DISCOVERED["$url"]=1
+        URL_PARENTS["$url"]="$parent"
+        ((crawled++))
+        
+        # Progress
+        if [[ $((crawled % 10)) -eq 0 ]]; then
+            log_message "Progress: Crawled $crawled pages, discovered ${#ALL_DISCOVERED[@]} URLs"
+            
+            # In debug mode, show more details
+            if [[ "$DEBUG" == "true" && "${#ALL_DISCOVERED[@]}" -gt 0 ]]; then
+                debug_message "Currently processing: $url (depth: $depth)"
+                if [[ "$MAX_URLS" -ne -1 ]]; then
+                    debug_message "URL limit status: ${#ALL_DISCOVERED[@]}/$MAX_URLS"
+                fi
+            fi
+        fi
+        
+        # Check depth limit
+        [[ "$max_depth" -ne -1 && "$depth" -ge "$max_depth" ]] && continue
+
+        # Only crawl internal URLs
+        is_url_in_scope "$url" "$base_url" || continue
+
+        # Skip excluded URLs - check before making any HTTP requests
+        if is_url_excluded "$url"; then
+            debug_message "Skipping excluded URL during crawl: $url"
+            EXCLUDED_URLS=$((EXCLUDED_URLS + 1))
+            continue
+        fi
+
+        # Skip binary files during crawling phase - they'll be checked in parallel phase
+        if is_binary_file_url "$url"; then
+            debug_message "Binary file detected, deferring to parallel check phase: $url"
+            # Don't mark as checked - let parallel phase handle it
+            continue
+        fi
+
+        # Log non-binary file for crawling if debug enabled
+        if [[ "$DEBUG" == "true" ]]; then
+            debug_message "Non-Binary file detected, will crawl for URLs: $url"
+        fi
+
+        # First do a HEAD request to check content type
+        local head_response=$(http_request_with_retry "$url" "HEAD")
+        local status content_type
+        parse_http_response "$head_response" "head"
+        status="$head_status"
+        content_type="$head_content_type"
+        
+        # Mark this URL as checked regardless of status
+        # Store the status so we can handle errors properly
+        if [[ -n "$status" ]]; then
+            CHECKED_CACHE["$url"]="$status"
+        fi
+        
+        # Only download full content if it's HTML or CSS
+        local content=""
+        if is_http_success "$status" &&
+           (is_html_content "$content_type" ||
+            is_css_content "$content_type" ||
+            [[ -z "$content_type" ]]); then
+            # Now get the full content
+            local get_response=$(http_request_with_retry "$url" "GET")
+            local get_status get_content_type get_content
+            parse_http_response "$get_response" "get"
+            content="$get_content"
+        fi
+        
+        # Store MIME type for this URL
+        if [[ -n "$content_type" ]]; then
+            URL_MIME_TYPES["$url"]="$content_type"
+        fi
+        
+        # Debug: show content type
+        if [[ "$DEBUG" == "true" ]]; then
+            # Clean up content-type for display (remove any CR/LF)
+            local clean_content_type="${content_type//[$'\r\n']/}"
+            debug_message "Crawling: $url [${clean_content_type:-unknown}] (Status: $status)"
+        fi
+        
+        # Only process HTML content types
+        if is_http_success "$status" && [[ -n "$content" ]]; then
+            # Debug: Show what content type we got
+            if [[ "$DEBUG" == "true" && -n "$content_type" ]]; then
+                debug_message "Content-Type for $url: [${content_type}]"
+            fi
+            
+            # Check Content-Type header for HTML or CSS
+            local new_urls=""
+            if is_html_content "$content_type" || [[ -z "$content_type" ]]; then
+                if [[ "$DEBUG" == "true" ]]; then
+                    debug_message "Content type matched HTML pattern, extracting URLs from: $url"
+                fi
+                new_urls=$(extract_urls_from_html_optimized "$content" "$url")
+            elif is_css_content "$content_type"; then
+                if [[ "$DEBUG" == "true" ]]; then
+                    debug_message "Content type matched CSS pattern, extracting URLs from: $url"
+                fi
+                new_urls=$(extract_urls_from_css "$content" "$url")
+            fi
+            
+            if [[ "$DEBUG" == "true" && -n "$new_urls" ]]; then
+                local url_count=$(echo "$new_urls" | grep -c '^.' || true)
+                debug_message "Found $url_count URLs in page: $url"
+            fi
+            
+            while IFS= read -r new_url; do
+                # Remove trailing backslash if present (HTML escaping artifact)
+                new_url="${new_url%\\}"
+                [[ -z "$new_url" ]] && continue
+
+                # Check for interrupt
+                if is_interrupted; then
+                    break
+                fi
+
+                # Check if this is a malformed URL report
+                if [[ "$new_url" =~ ^MALFORMED\| ]]; then
+                    local malformed_url="${new_url#MALFORMED|}"
+                    debug_message "Found malformed URL with spaces: $malformed_url"
+
+                    # Trim spaces from the malformed URL before adding to error list
+                    # This prevents incorrect concatenation while still reporting the error
+                    malformed_url="${malformed_url#"${malformed_url%%[![:space:]]*}"}"  # Remove leading spaces
+                    malformed_url="${malformed_url%"${malformed_url##*[![:space:]]}"}"  # Remove trailing spaces
+
+                    # Display the trimmed URL so it can be checked properly
+                    add_error_to_lists "${malformed_url}" "${LANG_MALFORMED_URL_ERROR}" "$url"
+                    ERRORS_FOUND=true
+                    continue
+                fi
+
+                # Check if we've hit the MAX_URLS limit
+                if [[ "$MAX_URLS" -ne -1 && "${#ALL_DISCOVERED[@]}" -ge "$MAX_URLS" ]]; then
+                    if [[ "$DEBUG" == "true" ]]; then
+                        debug_message "MAX_URLS limit ($MAX_URLS) reached, stopping URL discovery"
+                    fi
+                    MAX_URLS_REACHED=true
+                    MAX_URLS_CRAWLED_COUNT="$crawled"
+                    MAX_URLS_DISCOVERED_COUNT="${#ALL_DISCOVERED[@]}"
+                    break
+                fi
+
+                # Early validation - skip invalid URLs
+                if ! is_url_valid "$new_url"; then
+                    debug_message "Skipping invalid discovered URL: ${new_url:0:100}..."
+                    EXCLUDED_URLS=$((EXCLUDED_URLS + 1))
+                    continue
+                fi
+                
+                # Skip if excluded
+                if is_url_excluded "$new_url"; then
+                    EXCLUDED_URLS=$((EXCLUDED_URLS + 1))
+                    continue
+                fi
+                
+                # Check if URL is binary once and cache result
+                local is_binary=$(is_binary_file_url "$new_url" && echo "true" || echo "false")
+                
+                # Check if truly new (for debug mode only)
+                local is_new_discovery=false
+                if [[ "$DEBUG" == "true" ]]; then
+                    [[ -z "${ALL_DISCOVERED[$new_url]}" ]] && is_new_discovery=true
+                else
+                    is_new_discovery=true
+                fi
+                
+                # Add to discovered set immediately
+                ALL_DISCOVERED["$new_url"]=1
+                URL_PARENTS["$new_url"]="$url"
+                
+                # Handle statistics and debug output only for new discoveries
+                if [[ "$is_new_discovery" == "true" ]]; then
+                    ((discovered_count++))
+                    
+                    # Debug output only when enabled
+                    if [[ "$DEBUG" == "true" ]]; then
+                        local file_type_info=""
+                        if [[ "$is_binary" == "true" ]]; then
+                            file_type_info=" [Binary]"
+                        else
+                            file_type_info=" [Non-Binary]"
+                        fi
+                        
+                        local mime_info=""
+                        if [[ -n "${URL_MIME_TYPES["$new_url"]:-}" ]]; then
+                            mime_info=" [${URL_MIME_TYPES["$new_url"]}]"
+                        fi
+                        
+                        debug_message "Discovered New URL #${#ALL_DISCOVERED[@]}: $new_url${file_type_info}${mime_info}"
+                    fi
+                fi
+                
+                # Queue internal non-binary URLs for crawling
+                # Skip binary files - they'll be checked in parallel phase
+                if [[ "$is_binary" == "false" ]]; then
+                    if is_url_in_scope "$new_url" "$base_url" && \
+                       [[ -z "${crawl_visited["$new_url"]}" ]]; then
+                        # Queue for crawling
+                        crawl_queue+=("$new_url|$((depth + 1))|$url")
+                    fi
+                fi
+            done <<< "$new_urls"
+            
+            # If MAX_URLS was reached or interrupted, stop crawling
+            if [[ "$MAX_URLS_REACHED" == "true" ]] || is_interrupted; then
+                if [[ "$MAX_URLS_REACHED" == "true" ]]; then
+                    log_message "MAX_URLS limit reached during URL discovery, stopping crawl"
+                fi
+                break
+            fi
+        fi
+        
+        [[ "$REQUEST_DELAY" != "0" ]] && sleep "$REQUEST_DELAY"
+    done
+    
+    # No cleanup needed - all in memory
+    
+    log_message "Crawl complete: Crawled $crawled pages, discovered ${#ALL_DISCOVERED[@]} URLs"
+    
+    # Process CSS files
+    # CSS files are now processed in the main crawl loop based on MIME type
+    # process_css_files "$base_url"
+}
+
+#==============================================================================
+# Single Page Scan - Extract and check URLs from a single page without recursion
+#==============================================================================
+
+process_discovered_url() {
+    local new_url="$1"
+    local parent_url="$2"
+    local depth="$3"
+
+    # Check if this is a malformed URL report
+    if [[ "$new_url" =~ ^MALFORMED\| ]]; then
+        local malformed_url="${new_url#MALFORMED|}"
+        debug_message "Found malformed URL with spaces: $malformed_url"
+
+        # Trim spaces from the malformed URL
+        malformed_url="${malformed_url#"${malformed_url%%[![:space:]]*}"}"
+        malformed_url="${malformed_url%"${malformed_url##*[![:space:]]}"}"
+
+        # Add to error list
+        add_error_to_lists "${malformed_url}" "${LANG_MALFORMED_URL_ERROR}" "$parent_url"
+        ERRORS_FOUND=true
+        return
+    fi
+
+    # Skip if excluded
+    if is_url_excluded "$new_url"; then
+        EXCLUDED_URLS=$((EXCLUDED_URLS + 1))
+        return
+    fi
+
+    # Add to discovered URLs
+    if [[ -z "${ALL_DISCOVERED[$new_url]}" ]]; then
+        ALL_DISCOVERED["$new_url"]=1
+        URL_PARENTS["$new_url"]="$parent_url"
+
+        # Check if URL is binary
+        local is_binary=$(is_binary_file_url "$new_url" && echo "true" || echo "false")
+
+        if [[ "$DEBUG" == "true" ]]; then
+            local file_type_info=""
+            if [[ "$is_binary" == "true" ]]; then
+                file_type_info=" [Binary]"
+            else
+                file_type_info=" [Non-Binary]"
+            fi
+            debug_message "Discovered New URL #${#ALL_DISCOVERED[@]}: ${new_url}${file_type_info}"
+        fi
+    fi
+}
+
+
+process_css_files() {
+    local base_url="$1"
+    local css_count=0
+    local css_urls_found=0
+    
+    for url in "${!ALL_DISCOVERED[@]}"; do
+        if [[ "$url" =~ \.css(\?.*)?$ ]]; then
+            ((css_count++))
+            debug_message "Processing CSS: $url"
+            
+            local css_response=$(http_request_with_retry "$url" "GET")
+            local css_status css_content_type css_content
+            parse_http_response "$css_response" "css"
+            css_status="$css_status"
+            css_content_type="$css_content_type"
+            css_content="$css_content"
+            
+            # Debug: show CSS content type
+            if [[ "$DEBUG" == "true" ]]; then
+                # Clean up content-type for display (remove any CR/LF)
+                local clean_css_content_type="${css_content_type//[$'\r\n']/}"
+                debug_message "Processing CSS: $url [${clean_css_content_type:-unknown}] (Status: $css_status)"
+            fi
+            
+            if is_http_success "$css_status"; then
+                local css_urls=$(extract_urls_from_css "$css_content" "$url")
+                
+                while IFS= read -r css_url; do
+                    # Remove trailing backslash if present (HTML escaping artifact)
+                    css_url="${css_url%\\}"
+                    if [[ -n "$css_url" ]]; then
+                        # Check MAX_URLS limit for CSS URLs too
+                        if [[ "$MAX_URLS" -ne -1 && "${#ALL_DISCOVERED[@]}" -ge "$MAX_URLS" ]]; then
+                            debug_message "MAX_URLS limit reached, not adding CSS URL: $css_url"
+                            continue
+                        fi
+                        # Track if new for statistics
+                        [[ -z "${ALL_DISCOVERED[$css_url]}" ]] && ((css_urls_found++))
+                        # Direct assignment - no check needed for associative array
+                        ALL_DISCOVERED["$css_url"]=1
+                        URL_PARENTS["$css_url"]="$url"
+                    fi
+                done <<< "$css_urls"
+            fi
+        fi
+    done
+    
+    [[ $css_count -gt 0 ]] && log_message "Processed $css_count CSS files, found $css_urls_found additional URLs"
+}
+
+#==============================================================================
+# Parallel YouTube Checking
+#==============================================================================
+

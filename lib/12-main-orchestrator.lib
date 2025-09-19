@@ -1,0 +1,136 @@
+# 12-main-orchestrator.lib - Main Entry Point Function
+main() {
+    debug_message "Starting v$SCRIPT_VERSION"
+
+    parse_arguments "$@"
+
+    # Handle single page scan mode
+    if [[ "$SINGLE_PAGE_MODE" == "true" ]]; then
+        # For single page scan, we need at least language and mailto
+        if [[ ${#REMAINING_ARGS[@]} -lt 2 ]]; then
+            die_with_usage "Missing parameters for single page scan mode"
+        fi
+
+        local base_url="$SINGLE_PAGE_SCAN"
+        local cms_url="-"  # No CMS URL for single page scan
+        local language="${REMAINING_ARGS[0]}"
+        local mailto="${REMAINING_ARGS[1]}"
+    else
+        # Normal mode requires all 4 parameters
+        if [[ ${#REMAINING_ARGS[@]} -lt 4 ]]; then
+            die_with_usage "Missing required parameters"
+        fi
+
+        local base_url="${REMAINING_ARGS[0]}"
+        local cms_url="${REMAINING_ARGS[1]}"
+        local language="${REMAINING_ARGS[2]}"
+        local mailto="${REMAINING_ARGS[3]}"
+    fi
+
+    validate_parameters "$base_url" "$cms_url" "$language" "$mailto"
+    set_language_texts "$language"
+    check_prerequisites
+    
+    # Extract domain for logging
+    local domain=$(extract_domain "$base_url")
+    CURRENT_DOMAIN="$domain"
+    
+    log_message "Starting check: $base_url (Workers: $PARALLEL_WORKERS, Batch: $BATCH_SIZE, Max URLs: $MAX_URLS)"
+    
+    local start_time=$(date +%s)
+    
+    # Crawl or single page scan
+    if [[ "$SINGLE_PAGE_MODE" == "true" ]]; then
+        debug_message "=== Single Page Scan Mode ==="
+        scan_single_page "$base_url"
+    else
+        debug_message "=== Phase 1: Crawling ==="
+        crawl_website "$base_url" "$MAX_DEPTH"
+    fi
+    
+    # Check for interruption after crawling
+    if is_interrupted; then
+        log_message "Script interrupted after crawling phase"
+        return 1
+    fi
+    
+    # Check URLs in parallel
+    debug_message "=== Phase 2: Parallel Checking ==="
+    check_urls_parallel "$base_url"
+    
+    # Check for interruption after URL checking
+    if is_interrupted; then
+        log_message "Script interrupted after URL checking phase"
+        return 1
+    fi
+    
+    # YouTube
+    debug_message "=== Phase 3: YouTube ==="
+    check_youtube_videos_parallel
+    
+    # URL Loop Detection
+    debug_message "=== Phase 4: URL Loop Detection ==="
+    if [[ "$INTERRUPTED" != "true" ]]; then
+        detect_url_loops "$base_url"
+    fi
+    
+    CHECK_DURATION=$(($(date +%s) - start_time))
+    
+    # Display excluded URLs summary before generating report
+    display_excluded_urls_summary
+    
+    # Generate report if MAX_URLS was reached or errors were found
+    if [[ "$MAX_URLS_REACHED" == "true" ]] || [[ "$ERRORS_FOUND" == "true" ]]; then
+        log_message "Generating report"
+        local report=$(generate_report "$base_url" "$cms_url")
+        
+        # Determine recipient and subject
+        local final_mailto="$mailto"
+        local domain=$(extract_domain "$base_url")
+        local subject="$LANG_SUBJECT - $domain"
+        
+        # Modify subject and recipient if MAX_URLS was reached
+        if [[ "$MAX_URLS_REACHED" == "true" ]]; then
+            # Add MAX_URLS indication to subject in both languages
+            subject="$subject ($LANG_MAX_URLS_SUBJECT)"
+            
+            # Send to admin if configured
+            if [[ "$SEND_REPORT_ON_MAX_URLS_REACHED" == "true" ]] && [[ "$MAX_URLS_ADMIN_EMAIL" != "" ]]; then
+                final_mailto="$MAX_URLS_ADMIN_EMAIL"
+                log_message "MAX_URLS reached - redirecting report to administrator: $MAX_URLS_ADMIN_EMAIL"
+            fi
+        fi
+        
+        # Override recipient if CSS errors found (takes priority over MAX_URLS redirect)
+        if [[ "$CSS_ERRORS_FOUND" == "true" ]] && [[ "$REDIRECT_CSS_ERRORS_TO_ADMIN" == "true" ]]; then
+            log_message "CSS errors detected - redirecting report to administrator: $CSS_ERROR_ADMIN_EMAIL"
+            final_mailto="$CSS_ERROR_ADMIN_EMAIL"
+            debug_message "Report redirected from $mailto to $CSS_ERROR_ADMIN_EMAIL due to CSS errors"
+        fi
+        
+        # Add URL loop warning to subject if detected
+        if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+            subject="${subject}${LANG_URL_LOOP_SUBJECT_SUFFIX}"
+        fi
+        
+        send_email "$final_mailto" "$base_url" "$report" "$subject"
+    else
+        log_message "No errors found and MAX_URLS not reached"
+        return 0
+    fi
+    
+    log_message "Complete (Duration: ${CHECK_DURATION}s)"
+    return 0
+}
+
+# Entry
+if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+    show_usage
+    exit 0
+fi
+
+if [[ $# -eq 0 ]]; then
+    show_usage
+    exit 1
+fi
+

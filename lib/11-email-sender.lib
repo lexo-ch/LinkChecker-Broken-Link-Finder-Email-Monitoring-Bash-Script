@@ -1,0 +1,35 @@
+# 11-email-sender.lib - Email Sending Functions
+send_email() {
+    local mailto="$1"
+    local base_url="$2"
+    local html="$3"
+    local subject_override="$4"  # Optional subject override
+    
+    local domain=$(extract_domain "$base_url")
+    
+    local subject="${subject_override:-$LANG_SUBJECT - $domain}"
+    
+    # Add URL loop warning to subject if detected (if enabled)
+    if [[ "$URL_LOOPS_DETECTED" == "true" ]] && [[ -z "$subject_override" ]] && [[ "$URL_LOOP_ENABLE_WARNING" == "true" ]]; then
+        subject="${subject}${LANG_URL_LOOP_SUBJECT_SUFFIX}"
+    fi
+    
+    log_message "Sending email to: $mailto"
+    
+    if (
+        echo "To: $mailto"
+        echo "From: $MAIL_SENDER_NAME <$MAIL_SENDER>"
+        echo "Subject: $subject"
+        echo "Content-Type: text/html; charset=UTF-8"
+        echo "MIME-Version: 1.0"
+        echo ""
+        echo "$html"
+    ) | ${SENDMAIL_BINARY} -f "$MAIL_SENDER" "$mailto"; then
+        log_message "Email sent"
+        return 0
+    else
+        error_message "Email failed"
+        return 1
+    fi
+}
+

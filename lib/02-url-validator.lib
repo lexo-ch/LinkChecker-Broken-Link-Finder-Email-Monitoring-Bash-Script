@@ -1,0 +1,198 @@
+# 02-url-validator.lib - URL Validation Functions
+normalize_url() {
+    local url="$1"
+    local base_url="$2"
+
+    [[ -z "$url" ]] && return
+
+    # Trim leading and trailing spaces first
+    url="${url#"${url%%[![:space:]]*}"}"  # Remove leading spaces
+    url="${url%"${url##*[![:space:]]}"}"  # Remove trailing spaces
+
+    # Remove fragment
+    url="${url%%#*}"
+    # Replace remaining spaces with %20
+    url="${url// /%20}"
+
+    # Skip non-http
+    if [[ "$url" =~ ^[a-zA-Z]+: ]] && [[ ! "$url" =~ ^https?:// ]]; then
+        return
+    fi
+    
+    # Handle different URL types
+    if [[ "$url" =~ ^https?:// ]]; then
+        echo "$url"
+    elif [[ "$url" =~ ^// ]]; then
+        echo "${base_url%%://*}:${url}"
+    elif [[ "$url" =~ ^/ ]]; then
+        # Extract protocol and domain from base URL
+        local protocol="${base_url%%://*}"
+        local domain_part="${base_url#*://}"
+        domain_part="${domain_part%%/*}"
+        echo "${protocol}://${domain_part}${url}"
+    else
+        # For relative URLs, we need to handle the base URL carefully
+        local base="$base_url"
+
+        # Check if base URL has a path component after the domain
+        if [[ "$base" =~ ^(https?://[^/]+)(/.*)$ ]]; then
+            local domain_part="${BASH_REMATCH[1]}"
+            local path_part="${BASH_REMATCH[2]}"
+
+            # If path ends with a file (not /), remove the file part
+            if [[ "$path_part" =~ /[^/]+\.[^/]+$ ]]; then
+                path_part="${path_part%/*}/"
+            elif [[ ! "$path_part" =~ /$ ]]; then
+                path_part="${path_part}/"
+            fi
+            base="${domain_part}${path_part}"
+        else
+            # No path component, just domain
+            base="${base}/"
+        fi
+
+        # Remove any double slashes and output
+        echo "${base}${url}" | sed 's|/\+|/|g' | sed 's|:/|://|'
+    fi
+}
+
+is_url_excluded() {
+    local url="$1"
+    for pattern in "${EXCLUDES[@]}" "${DYNAMIC_EXCLUDES[@]}"; do
+        # Use Bash's built-in regex matching (much faster than spawning grep)
+        if [[ "$url" =~ $pattern ]]; then
+            # Track excluded URL for debug summary (only add once)
+            if [[ "$DEBUG" == "true" ]] && [[ ! " ${EXCLUDED_URL_LIST[@]} " =~ " ${url} " ]]; then
+                EXCLUDED_URL_LIST+=("$url|$pattern")
+            fi
+            return 0
+        fi
+    done
+    return 1
+}
+
+is_url_in_scope() {
+    local url="$1"
+    local base_url="$2"
+
+    local base_domain=$(extract_domain "$base_url")
+    local url_domain=$(extract_domain "$url")
+
+    [[ "$url_domain" == "$base_domain" ]]
+}
+
+is_url_valid() {
+    local url="$1"
+
+    # Check URL length
+    if [[ ${#url} -gt $MAX_URL_LENGTH ]]; then
+        debug_message "URL too long (${#url} chars): ${url:0:100}..."
+        return 1
+    fi
+
+    # Check for HTML comment artifacts or other invalid characters
+    if [[ "$url" == *"<!--"* ]] || [[ "$url" == *"-->"* ]] || [[ "$url" == *"<!"* ]] || [[ "$url" == *"!>"* ]]; then
+        debug_message "URL contains HTML comment artifacts: ${url:0:100}..."
+        return 1
+    fi
+
+    # Check for obviously malformed URLs
+    # Detect repeating patterns like /like/like/like/
+    if echo "$url" | grep -qE '(/[^/]+/)\1{5,}'; then
+        debug_message "URL has repeating pattern: ${url:0:100}..."
+        return 1
+    fi
+
+    # Check specifically for multiple /like/ patterns (Facebook widget issue)
+    if echo "$url" | grep -qE '(/like/){3,}'; then
+        debug_message "URL has multiple /like/ patterns: ${url:0:100}..."
+        return 1
+    fi
+
+    # Check for excessive query parameters (possible loop)
+    local param_count=$(echo "$url" | grep -o '&' | wc -l)
+    if [[ $param_count -gt 50 ]]; then
+        debug_message "URL has too many parameters ($param_count): ${url:0:100}..."
+        return 1
+    fi
+
+    # Security: Check for command injection patterns
+    # Check for shell metacharacters that could enable command injection
+    # Note: Some chars like < > are valid in query parameters, but we check them for safety
+    if [[ "$url" == *'$('* ]] || [[ "$url" == *'`'* ]] || [[ "$url" == *';'* ]] ||
+       [[ "$url" == *'|'* ]] || [[ "$url" == *'&&'* ]] || [[ "$url" == *'||'* ]] ||
+       [[ "$url" == *$'\n'* ]] || [[ "$url" == *$'\r'* ]] || [[ "$url" == *$'\t'* ]]; then
+        debug_message "URL contains potentially dangerous shell metacharacters: ${url:0:100}..."
+        return 1
+    fi
+
+    return 0
+}
+
+# Strict URL validation specifically for curl - ensures URL is safe to pass
+validate_url_for_curl() {
+    local url="$1"
+
+    # First, run standard validation
+    if ! is_url_valid "$url"; then
+        return 1
+    fi
+
+    # Additional strict checks for curl
+    # Ensure URL starts with http:// or https://
+    if ! [[ "$url" =~ ^https?:// ]]; then
+        debug_message "URL does not start with http(s)://: ${url:0:100}..."
+        return 1
+    fi
+
+    # Extract and validate the protocol, domain, and path components
+    # Use bash regex to parse URL components safely
+    if [[ "$url" =~ ^(https?)://([^/:]+)(:[0-9]+)?(/.*)?$ ]]; then
+        local protocol="${BASH_REMATCH[1]}"
+        local domain="${BASH_REMATCH[2]}"
+        local port="${BASH_REMATCH[3]}"
+        local path="${BASH_REMATCH[4]}"
+
+        # Validate domain - should only contain valid hostname characters
+        if ! [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+            # Check if it's an IP address
+            if ! [[ "$domain" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                debug_message "Invalid domain in URL: $domain"
+                return 1
+            fi
+        fi
+
+        # Validate port if present
+        if [[ -n "$port" ]]; then
+            local port_num="${port:1}" # Remove leading colon
+            if ! [[ "$port_num" =~ ^[0-9]+$ ]] || [[ $port_num -lt 1 ]] || [[ $port_num -gt 65535 ]]; then
+                debug_message "Invalid port in URL: $port"
+                return 1
+            fi
+        fi
+    else
+        debug_message "URL does not match expected format: ${url:0:100}..."
+        return 1
+    fi
+
+    return 0
+}
+
+# Check if URL appears to be a binary file based on extension
+is_binary_file_url() {
+    local url="$1"
+    
+    # Remove query string and fragment
+    local path="${url%%\?*}"
+    path="${path%%#*}"
+    
+    # Convert path to lowercase for case-insensitive comparison
+    local lower_path="${path,,}"
+    
+    # Check if URL ends with binary file extension (case-insensitive)
+    if [[ "$lower_path" =~ \.${BINARY_FILE_EXTENSIONS}$ ]]; then
+        return 0  # It's a binary file
+    fi
+    
+    return 1  # Not a binary file
+}

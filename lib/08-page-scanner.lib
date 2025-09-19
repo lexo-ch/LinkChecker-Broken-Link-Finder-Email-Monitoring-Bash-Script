@@ -1,0 +1,57 @@
+# 08-page-scanner.lib - Single Page Scanning Functions
+scan_single_page() {
+    local page_url="$1"
+
+    # Extract domain for progress messages
+    local domain=$(extract_domain "$page_url")
+
+    log_message "Starting single page scan: $page_url"
+
+    # Get the page content
+    local response=$(http_request_with_retry "$page_url" "GET")
+
+    # Parse response components
+    local status content_type content
+    parse_http_response "$response" "resp"
+    status="$resp_status"
+    content_type="$resp_content_type"
+    content="$resp_content"
+
+    # Check if page is accessible
+    if ! is_http_success "$status"; then
+        log_message "ERROR: Cannot access page $page_url (Status: $status)"
+        return 1
+    fi
+
+    # Add the page itself to discovered URLs
+    ALL_DISCOVERED["$page_url"]=1
+    CHECKED_CACHE["$page_url"]="$status"
+
+    # Extract URLs from the page
+    log_message "Extracting URLs from single page: $page_url"
+    local urls_found=0
+
+    if [[ -n "$content" ]]; then
+        # Extract URLs based on content type
+        if is_css_content "$content_type"; then
+            debug_message "Extracting URLs from CSS file"
+            while IFS= read -r new_url; do
+                process_discovered_url "$new_url" "$page_url" "0"
+                ((urls_found++))
+            done < <(extract_urls_from_css "$content" "$page_url")
+        else
+            # Assume HTML/XHTML for other text types
+            debug_message "Extracting URLs from HTML page"
+            while IFS= read -r new_url; do
+                process_discovered_url "$new_url" "$page_url" "0"
+                ((urls_found++))
+            done < <(extract_urls_from_html_optimized "$content" "$page_url")
+        fi
+    fi
+
+    log_message "Single page scan complete: Found $urls_found URLs on page"
+
+    # Return success - URLs have been added to ALL_DISCOVERED
+    return 0
+}
+

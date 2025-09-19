@@ -1,0 +1,220 @@
+# 09-loop-detector.lib - URL Loop Detection and Debug Functions
+detect_url_loops() {
+    local base_url="$1"
+    
+    debug_message "Checking for URL loop patterns"
+    
+    local loop_count=0
+    # Global patterns tracking - only for actual loops found
+    declare -A global_patterns
+    declare -A global_pattern_examples
+    
+    for url in "${!ALL_DISCOVERED[@]}"; do
+        # Skip external URLs
+        is_url_in_scope "$url" "$base_url" || continue
+        
+        # Skip excluded URLs - respect both global and dynamic exclusions
+        if is_url_excluded "$url"; then
+            debug_message "Skipping excluded URL from loop detection: $url"
+            continue
+        fi
+        
+        # Remove domain and query parameters for analysis
+        local path="${url#*://}"
+        path="${path#*/}"
+        path="${path%%\?*}"
+        path="${path%%#*}"
+        
+        # Skip if path is too short
+        [[ -z "$path" ]] && continue
+        
+        # Split path into segments
+        IFS='/' read -ra segments <<< "$path"
+        
+        # Skip if not enough segments to check
+        [[ ${#segments[@]} -lt $URL_LOOP_MIN_SEGMENTS ]] && continue
+        
+        # Track if THIS SPECIFIC URL has a loop pattern
+        local url_has_loop=false
+        
+        # Method 1: Check for CONSECUTIVE repetitions of the same segment
+        # Examples that SHOULD be flagged:
+        #   /products/products/ (same segment repeated consecutively)
+        #   /home/home/home/ (same segment repeated 3x consecutively)
+        #   /api/v1/v1/endpoint (v1 repeated consecutively)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/4305/ (different segments)
+        #   /products/category/products/ (products appears twice but not consecutively)
+        local prev_segment=""
+        local repetition_count=1
+        local max_repetition=1
+        
+        for segment in "${segments[@]}"; do
+            if [[ "$segment" == "$prev_segment" ]] && [[ -n "$segment" ]]; then
+                ((repetition_count++))
+                [[ $repetition_count -gt $max_repetition ]] && max_repetition=$repetition_count
+            else
+                repetition_count=1
+            fi
+            prev_segment="$segment"
+        done
+        
+        if [[ $max_repetition -ge $URL_LOOP_THRESHOLD ]]; then
+            url_has_loop=true
+            debug_message "Method 1: Found consecutive repetition in $url (${max_repetition}x)"
+        fi
+        
+        # Method 2: Check for REPEATING PATTERNS of 2+ segments
+        # Examples that SHOULD be flagged:
+        #   /about/services/about/services/ (pattern "about/services" repeats)
+        #   /api/v1/users/api/v1/users/ (pattern "api/v1/users" repeats)
+        #   /a/b/a/b/a/b/ (pattern "a/b" repeats 3 times)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/4305/ (no repeating multi-segment pattern)
+        #   /products/category/items/ (no pattern repetition)
+        local pattern_found=false
+        if [[ ${#segments[@]} -ge 4 ]]; then  # Need at least 4 segments for 2x repetition of 2-segment pattern
+            for ((i=0; i<=((${#segments[@]}-4)); i++)); do
+                # Try 2-segment patterns
+                if [[ $((i+3)) -lt ${#segments[@]} ]]; then
+                    local pattern="${segments[$i]}/${segments[$i+1]}"
+                    local pattern_repeat_count=1
+                    
+                    # Check if pattern repeats immediately after
+                    for ((j=i+2; j<${#segments[@]}-1; j+=2)); do
+                    if [[ "${segments[$j]}/${segments[$j+1]}" == "$pattern" ]]; then
+                        ((pattern_repeat_count++))
+                    else
+                        break
+                    fi
+                done
+                
+                    if [[ $pattern_repeat_count -ge $URL_LOOP_THRESHOLD ]]; then
+                        pattern_found=true
+                        url_has_loop=true
+                        debug_message "Method 2: Found repeating pattern '$pattern' (${pattern_repeat_count}x) in $url"
+                        
+                        # Store in global patterns only if it's a real loop
+                        if [[ -z "${global_patterns[$pattern]}" ]]; then
+                            global_patterns["$pattern"]=1
+                            global_pattern_examples["$pattern"]="$url"
+                        fi
+                        break
+                    fi
+                fi
+            done
+        fi
+        
+        # Method 3: Check for SAME SEGMENT appearing multiple times at REGULAR intervals
+        # Examples that SHOULD be flagged:
+        #   /api/users/api/posts/api/comments/ (api appears every 2 segments)
+        #   /v1/data/v1/users/v1/posts/ (v1 appears at regular intervals)
+        # Examples that should NOT be flagged:
+        #   /cpt-angebote-re/an-ruhiger-lage/ (segments appear only once)
+        #   /home/products/services/home/ (home appears twice but not at regular intervals)
+        # IMPORTANT: Clear arrays for EACH URL to avoid cross-contamination
+        unset segment_counts segment_positions
+        declare -A segment_counts=()
+        declare -A segment_positions=()
+        
+        for i in "${!segments[@]}"; do
+            local segment="${segments[$i]}"
+            if [[ -n "$segment" ]]; then
+                if [[ -v segment_counts["$segment"] ]]; then
+                    segment_counts["$segment"]=$((segment_counts["$segment"] + 1))
+                else
+                    segment_counts["$segment"]=1
+                fi
+                segment_positions["$segment"]+="$i "
+            fi
+        done
+        
+        for segment in "${!segment_counts[@]}"; do
+            # Only check segments that appear multiple times
+            if [[ ${segment_counts[$segment]} -ge $URL_LOOP_THRESHOLD ]]; then
+                local positions=(${segment_positions[$segment]})
+                local is_suspicious=false
+                
+                # Check for REGULAR intervals (suggesting automated/looping generation)
+                if [[ ${#positions[@]} -ge $URL_LOOP_THRESHOLD ]]; then
+                    # Calculate intervals between appearances
+                    local first_interval=$((positions[1] - positions[0]))
+                    local has_regular_pattern=true
+                    
+                    # Check if all intervals are the same AND small (<=3)
+                    for ((i=2; i<${#positions[@]}; i++)); do
+                        local curr_interval=$((positions[i] - positions[i-1]))
+                        # Intervals must be consistent AND reasonably small to be suspicious
+                        if [[ $curr_interval -ne $first_interval ]] || [[ $first_interval -gt 3 ]]; then
+                            has_regular_pattern=false
+                            break
+                        fi
+                    done
+                    
+                    # Only flag if intervals are regular AND small (indicating a loop pattern)
+                    if [[ "$has_regular_pattern" == "true" ]] && [[ $first_interval -le 3 ]] && [[ $first_interval -gt 0 ]]; then
+                        is_suspicious=true
+                        url_has_loop=true
+                        debug_message "Method 3: Found suspicious regular repetition of '$segment' every $first_interval segments in $url"
+                    fi
+                fi
+            fi
+        done
+        
+        # Only add this URL to the loop list if it actually has a loop pattern
+        if [[ "$url_has_loop" == "true" ]]; then
+            ((loop_count++))
+            URL_LOOP_ALL_URLS+=("$url")
+        fi
+    done
+    
+    # Set global detection flag based on actual loops found
+    if [[ $loop_count -gt 0 ]]; then
+        URL_LOOPS_DETECTED=true
+        log_message "Detected URL loops: $loop_count URLs with repetitive patterns"
+        
+        # Store global patterns if any were found
+        if [[ ${#global_patterns[@]} -gt 0 ]]; then
+            for pattern in "${!global_patterns[@]}"; do
+                URL_LOOP_PATTERNS+=("$pattern")
+                URL_LOOP_EXAMPLES["$pattern"]="${global_pattern_examples[$pattern]}"
+            done
+        fi
+    else
+        debug_message "No URL loop patterns detected"
+    fi
+}
+
+# Optimized Crawling with Better Queue Management
+
+
+display_excluded_urls_summary() {
+    if [[ "$DEBUG" != "true" ]] || [[ ${#EXCLUDED_URL_LIST[@]} -eq 0 ]]; then
+        return
+    fi
+
+    debug_message ""
+    debug_message "=========================================="
+    debug_message "=== EXCLUDED URLs SUMMARY ==="
+    debug_message "=========================================="
+    debug_message "Total excluded URLs: ${#EXCLUDED_URL_LIST[@]}"
+    debug_message "------------------------------------------"
+
+    # Group by pattern
+    declare -A pattern_counts
+
+    for entry in "${EXCLUDED_URL_LIST[@]}"; do
+        IFS='|' read -r url pattern <<< "$entry"
+        ((pattern_counts["$pattern"]++))
+    done
+
+    # Display by pattern (sorted by count, descending)
+    for pattern in $(for p in "${!pattern_counts[@]}"; do echo "${pattern_counts[$p]}:$p"; done | sort -rn | cut -d: -f2-); do
+        debug_message "Pattern: '$pattern' [ ${pattern_counts[$pattern]} URL(s) ]"
+    done
+
+    debug_message "=========================================="
+    debug_message ""
+}
+
+# Main
